@@ -7,6 +7,8 @@ import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.VertexAttributes.Usage;
+import com.badlogic.gdx.graphics.g2d.BitmapFont;
+import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.g3d.Environment;
 import com.badlogic.gdx.graphics.g3d.Material;
 import com.badlogic.gdx.graphics.g3d.Model;
@@ -29,6 +31,15 @@ public class GameScreen extends ScreenAdapter {
     private Model model;
     private ModelInstance instance;
     private Environment environment;
+    // pour l'interface 2D (Le Texte)
+    private SpriteBatch batch;
+    private BitmapFont font;
+
+    // pour les entités de jeu
+    private Model balleModel;
+    private ModelInstance balleInstance;
+    private Model quilleModel;
+    private ModelInstance quilleInstance;
 
     private final float MARGE_TOLERANCE = 15.0f;
 
@@ -55,6 +66,30 @@ public class GameScreen extends ScreenAdapter {
             Usage.Position | Usage.Normal);
 
         instance = new ModelInstance(model);
+
+        // --- 1. INITIALISATION DE L'INTERFACE 2D ---
+        batch = new SpriteBatch();
+        font = new BitmapFont();
+        font.getData().setScale(1.5f); // On grossit un peu le texte
+
+        // --- 2. CRÉATION DE LA BALLE ROUGE ---
+        balleModel = modelBuilder.createSphere(1f, 1f, 1f, 20, 20,
+            new Material(ColorAttribute.createDiffuse(Color.RED)),
+            Usage.Position | Usage.Normal);
+        balleInstance = new ModelInstance(balleModel);
+
+        // On place la balle sur le premier bloc (0, 0, 0).
+        // Comme le bloc fait 2 de haut, son sommet est à Y=1. On pose la balle à Y=1.5
+        balleInstance.transform.setToTranslation(0f, 1.5f, 0f);
+
+        // --- 3. CRÉATION DE LA QUILLE BLANCHE ---
+        quilleModel = modelBuilder.createCylinder(0.8f, 2f, 0.8f, 16,
+            new Material(ColorAttribute.createDiffuse(Color.WHITE)),
+            Usage.Position | Usage.Normal);
+        quilleInstance = new ModelInstance(quilleModel);
+
+        // On place la quille sur le dernier bloc de notre tuto.txt (2, 0, -4)
+        quilleInstance.transform.setToTranslation(2f, 2f, -4f);
 
         chargerNiveau(nomFichier);
     }
@@ -104,12 +139,27 @@ public class GameScreen extends ScreenAdapter {
         Gdx.gl.glViewport(0, 0, Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT | GL20.GL_DEPTH_BUFFER_BIT);
 
+        // --- A. DESSIN DE LA 3D ---
         modelBatch.begin(camera);
+
+        // Dessin du niveau (les blocs)
         for (Vector3 position : niveauActuel) {
             instance.transform.setToTranslation(position);
             modelBatch.render(instance, environment);
         }
+
+        // Dessin des entités
+        modelBatch.render(balleInstance, environment);
+        modelBatch.render(quilleInstance, environment);
+
         modelBatch.end();
+
+        // --- B. DESSIN DE L'INTERFACE 2D (HUD) ---
+        batch.begin();
+        // Le texte s'affiche en haut de l'écran
+        font.draw(batch, "TUTORIEL : Faites glisser la souris pour tourner la camera.", 20, Gdx.graphics.getHeight() - 20);
+        font.draw(batch, "Objectif : Alignez visuellement le bloc de depart avec le bloc d'arrivee.", 20, Gdx.graphics.getHeight() - 50);
+        batch.end();
     }
 
     private boolean illusionsSontConnectees(Vector3 pointMondeA, Vector3 pointMondeB) {
@@ -130,5 +180,9 @@ public class GameScreen extends ScreenAdapter {
     public void dispose() {
         modelBatch.dispose();
         model.dispose();
+        balleModel.dispose();
+        quilleModel.dispose();
+        batch.dispose();
+        font.dispose();
     }
 }
