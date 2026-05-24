@@ -41,6 +41,11 @@ public class GameScreen extends ScreenAdapter {
     private Model quilleModel;
     private ModelInstance quilleInstance;
 
+    // physiques de la balle
+    private Vector3 positionBalle;
+    private float vitesseX = 2.5f;
+    private float vitesseY = 0f;
+
     private final float MARGE_TOLERANCE = 15.0f;
 
     private List<Vector3> niveauActuel;
@@ -80,7 +85,7 @@ public class GameScreen extends ScreenAdapter {
 
         // On place la balle sur le premier bloc (0, 0, 0).
         // Comme le bloc fait 2 de haut, son sommet est à Y=1. On pose la balle à Y=1.5
-        balleInstance.transform.setToTranslation(0f, 1.5f, 0f);
+        positionBalle = new Vector3(0f, 1.5f, 0f);
 
         // --- 3. CRÉATION DE LA QUILLE BLANCHE ---
         quilleModel = modelBuilder.createCylinder(0.8f, 2f, 0.8f, 16,
@@ -116,6 +121,53 @@ public class GameScreen extends ScreenAdapter {
 
     @Override
     public void render(float delta) {
+        // --- PHYSIQUE ET LOGIQUE D'ILLUSION ---
+
+        // 1. La balle roule inexorablement vers l'avant (axe X)
+        positionBalle.x += vitesseX * delta;
+
+        boolean surUnBloc = false;
+        Vector3 blocCibleIllusion = null;
+
+        // 2. On analyse tous les blocs du niveau
+        for (Vector3 bloc : niveauActuel) {
+
+            // Nos blocs font 2x2x2. On vérifie si la balle est au-dessus (Bounding Box mathématique)
+            if (Math.abs(positionBalle.x - bloc.x) <= 1.0f && Math.abs(positionBalle.z - bloc.z) <= 1.0f) {
+                surUnBloc = true;
+                positionBalle.y = bloc.y + 1.5f; // On la maintient fermement sur le sol
+                vitesseY = 0f; // On annule la vitesse de chute
+                break; // On a trouvé notre sol, on arrête de chercher
+            }
+
+            // 3. LE TEST D'ILLUSION D'OPTIQUE
+            // Si on n'est pas physiquement sur ce bloc, on regarde s'il est "visuellement" connecté
+            // à la position actuelle de la balle à l'écran.
+            Vector3 surfaceBloc = new Vector3(bloc.x, bloc.y + 1.5f, bloc.z);
+            if (illusionsSontConnectees(positionBalle, surfaceBloc)) {
+                // On a trouvé un bloc qui s'aligne parfaitement avec notre trajectoire !
+                blocCibleIllusion = bloc;
+            }
+        }
+
+        // 4. Résolution du mouvement
+        if (!surUnBloc) {
+            if (blocCibleIllusion != null && vitesseY >= 0) {
+                // TÉLÉPORTATION Z ! Le joueur a réussi l'illusion.
+                // La balle passe instantanément sur l'autre bloc en profondeur.
+                positionBalle.z = blocCibleIllusion.z;
+                positionBalle.y = blocCibleIllusion.y + 1.5f;
+            } else {
+                // Le joueur a raté l'illusion (ou la caméra est mal tournée).
+                // La gravité (9.81 m/s²) attire la balle dans le vide.
+                vitesseY -= 9.81f * delta;
+                positionBalle.y += vitesseY * delta;
+            }
+        }
+
+        // 5. On applique la position calculée au modèle 3D juste avant de le dessiner
+        balleInstance.transform.setToTranslation(positionBalle);
+
         // --- RETOUR AU MENU ---
         if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
             game.setScreen(new MenuScreen(game));
