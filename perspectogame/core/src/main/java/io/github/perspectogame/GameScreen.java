@@ -38,6 +38,18 @@ public class GameScreen extends ScreenAdapter {
         }
     }
 
+    private static final class Atterrissage {
+        private final Vector3 bloc;
+        private final float tempsImpact;
+        private final float xImpact;
+
+        private Atterrissage(Vector3 bloc, float tempsImpact, float xImpact) {
+            this.bloc = bloc;
+            this.tempsImpact = tempsImpact;
+            this.xImpact = xImpact;
+        }
+    }
+
     private static final float LARGEUR_CAMERA = 15f;
     private static final float TAILLE_BLOC = 2f;
     private static final float DEMI_BLOC = TAILLE_BLOC / 2f;
@@ -223,42 +235,84 @@ public class GameScreen extends ScreenAdapter {
     }
 
     private void appliquerChute(float delta) {
+        float xAvant = positionBalle.x;
         float yAvant = positionBalle.y;
-        vitesseY -= GRAVITE * delta;
-        float yApres = positionBalle.y + vitesseY * delta;
+        float vitesseYAvant = vitesseY;
+        float xApres = xAvant + vitesseX * delta;
+        float yApres = yAvant + vitesseYAvant * delta - 0.5f * GRAVITE * delta * delta;
 
-        Vector3 blocAtterrissage = trouverBlocAtterrissage(positionBalle.x, positionBalle.z, yAvant, yApres);
-        if (blocAtterrissage != null) {
-            blocCourant = blocAtterrissage;
+        Atterrissage atterrissage = trouverAtterrissagePendantChute(xAvant, xApres, positionBalle.z, yAvant, vitesseYAvant, delta);
+        if (atterrissage != null) {
+            blocCourant = atterrissage.bloc;
             vitesseY = 0f;
-            positionBalle.y = blocAtterrissage.y + HAUTEUR_BALLE;
-            positionBalle.z = borner(positionBalle.z, blocAtterrissage.z - DEMI_BLOC, blocAtterrissage.z + DEMI_BLOC);
+            positionBalle.x = atterrissage.xImpact;
+            positionBalle.y = atterrissage.bloc.y + HAUTEUR_BALLE;
+            positionBalle.z = borner(positionBalle.z, atterrissage.bloc.z - DEMI_BLOC, atterrissage.bloc.z + DEMI_BLOC);
+
+            float tempsRestant = delta - atterrissage.tempsImpact;
+            if (tempsRestant > 0f) {
+                avancerSurBloc(tempsRestant);
+            }
             return;
         }
 
+        positionBalle.x = xApres;
         positionBalle.y = yApres;
+        vitesseY = vitesseYAvant - GRAVITE * delta;
         if (positionBalle.y < Y_DEFAITE) {
             reinitialiserBalle();
         }
     }
 
-    private Vector3 trouverBlocAtterrissage(float x, float z, float yAvant, float yApres) {
-        Vector3 meilleurBloc = null;
-        float meilleurSol = Float.NEGATIVE_INFINITY;
+    private Atterrissage trouverAtterrissagePendantChute(float xAvant, float xApres, float z, float yAvant, float vitesseYAvant, float delta) {
+        Atterrissage meilleurAtterrissage = null;
 
         for (Vector3 bloc : niveauActuel) {
-            if (Math.abs(x - bloc.x) > DEMI_BLOC || Math.abs(z - bloc.z) > DEMI_BLOC) {
+            if (Math.abs(z - bloc.z) > DEMI_BLOC) {
                 continue;
             }
 
             float hauteurSol = bloc.y + HAUTEUR_BALLE;
-            if (yAvant >= hauteurSol && yApres <= hauteurSol && hauteurSol > meilleurSol) {
-                meilleurSol = hauteurSol;
-                meilleurBloc = bloc;
+            if (yAvant < hauteurSol) {
+                continue;
+            }
+
+            float tempsImpact = calculerTempsImpact(yAvant, vitesseYAvant, hauteurSol);
+            if (tempsImpact < 0f || tempsImpact > delta) {
+                continue;
+            }
+
+            float xImpact = xAvant + vitesseX * tempsImpact;
+            if (xImpact < bloc.x - DEMI_BLOC || xImpact > bloc.x + DEMI_BLOC) {
+                continue;
+            }
+
+            if (xImpact < Math.min(xAvant, xApres) - BORD_EPSILON || xImpact > Math.max(xAvant, xApres) + BORD_EPSILON) {
+                continue;
+            }
+
+            if (meilleurAtterrissage == null
+                || tempsImpact < meilleurAtterrissage.tempsImpact
+                || (Math.abs(tempsImpact - meilleurAtterrissage.tempsImpact) < 0.0001f && bloc.y > meilleurAtterrissage.bloc.y)) {
+                meilleurAtterrissage = new Atterrissage(bloc, tempsImpact, xImpact);
             }
         }
 
-        return meilleurBloc;
+        return meilleurAtterrissage;
+    }
+
+    private float calculerTempsImpact(float yAvant, float vitesseYAvant, float hauteurSol) {
+        float deltaHauteur = yAvant - hauteurSol;
+        if (deltaHauteur < 0f) {
+            return -1f;
+        }
+
+        float discriminant = vitesseYAvant * vitesseYAvant + 2f * GRAVITE * deltaHauteur;
+        if (discriminant < 0f) {
+            return -1f;
+        }
+
+        return (vitesseYAvant + (float) Math.sqrt(discriminant)) / GRAVITE;
     }
 
     private PontVisuel trouverPontVisuel(Vector3 blocSource) {
@@ -275,6 +329,10 @@ public class GameScreen extends ScreenAdapter {
 
         float tolerance = calculerToleranceAlignement();
         float toleranceCarree = tolerance * tolerance;
+        float segmentDirX = axeDroite.z;
+        float segmentDirY = axeHaut.z;
+        float segmentDirProfondeur = axeVue.z;
+        float longueurSegmentCarree = segmentDirX * segmentDirX + segmentDirY * segmentDirY;
         PontVisuel meilleurPont = null;
 
         for (Vector3 bloc : niveauActuel) {
@@ -282,24 +340,46 @@ public class GameScreen extends ScreenAdapter {
                 continue;
             }
 
-            Vector3 entree = new Vector3(bloc.x - DEMI_BLOC, bloc.y + HAUTEUR_BALLE, bloc.z + zLocalSource);
-            Vector3 entreeRelative = new Vector3(entree).sub(camera.position);
-            float deltaX = entreeRelative.dot(axeDroite) - sortieX;
-            float deltaY = entreeRelative.dot(axeHaut) - sortieY;
+            Vector3 entreeBase = new Vector3(bloc.x - DEMI_BLOC, bloc.y + HAUTEUR_BALLE, bloc.z);
+            Vector3 entreeRelative = new Vector3(entreeBase).sub(camera.position);
+            float entreeBaseX = entreeRelative.dot(axeDroite);
+            float entreeBaseY = entreeRelative.dot(axeHaut);
+            float entreeBaseProfondeur = entreeRelative.dot(axeVue);
+
+            float zLocalCible;
+            float pointEntreeX;
+            float pointEntreeY;
+            float pointEntreeProfondeur;
+            if (longueurSegmentCarree < 0.0001f) {
+                zLocalCible = borner(positionBalle.z - bloc.z, -DEMI_BLOC, DEMI_BLOC);
+                pointEntreeX = entreeBaseX;
+                pointEntreeY = entreeBaseY;
+                pointEntreeProfondeur = entreeBaseProfondeur + segmentDirProfondeur * zLocalCible;
+            } else {
+                float projection = ((sortieX - entreeBaseX) * segmentDirX + (sortieY - entreeBaseY) * segmentDirY) / longueurSegmentCarree;
+                zLocalCible = borner(projection, -DEMI_BLOC, DEMI_BLOC);
+                pointEntreeX = entreeBaseX + segmentDirX * zLocalCible;
+                pointEntreeY = entreeBaseY + segmentDirY * zLocalCible;
+                pointEntreeProfondeur = entreeBaseProfondeur + segmentDirProfondeur * zLocalCible;
+            }
+
+            float deltaX = pointEntreeX - sortieX;
+            float deltaY = pointEntreeY - sortieY;
             float ecartCarre = deltaX * deltaX + deltaY * deltaY;
             if (ecartCarre > toleranceCarree) {
                 continue;
             }
 
-            float deltaProfondeur = entreeRelative.dot(axeVue) - sortieProfondeur;
-            if (deltaProfondeur <= MIN_DEPTH_GAP) {
+            float deltaProfondeur = pointEntreeProfondeur - sortieProfondeur;
+            float profondeurAbsolue = Math.abs(deltaProfondeur);
+            if (profondeurAbsolue <= MIN_DEPTH_GAP) {
                 continue;
             }
 
             if (meilleurPont == null
                 || ecartCarre < meilleurPont.ecartCarre
-                || (Math.abs(ecartCarre - meilleurPont.ecartCarre) < 0.0001f && deltaProfondeur < meilleurPont.profondeur)) {
-                meilleurPont = new PontVisuel(bloc, bloc.z + zLocalSource, ecartCarre, deltaProfondeur);
+                || (Math.abs(ecartCarre - meilleurPont.ecartCarre) < 0.0001f && profondeurAbsolue < meilleurPont.profondeur)) {
+                meilleurPont = new PontVisuel(bloc, bloc.z + zLocalCible, ecartCarre, profondeurAbsolue);
             }
         }
 
