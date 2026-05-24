@@ -1,18 +1,15 @@
-# --- PLATEFORME DE DÉPART (Là où la balle va rouler) ---
--4, 0, 0
--2, 0, 0
+# Niveau 1 : premier vrai enchainement
+
+# Plateforme de depart
 0, 0, 0
+2, 0, 0
+4, 0, 0
 
-# --- LE GOUFFRE INFRANCHISSABLE ---
-# Physiquement, il manque un bloc à la coordonnée (2, 0, 0).
-# La balle tomberait dans le vide.
+# Premier transfert
+6, -2, -2
+8, -2, -2
 
-# --- PLATEFORME D'ARRIVÉE (Là où se trouve la quille) ---
-# Cette plateforme est alignée sur l'axe X, mais elle est
-# reculée de 10 mètres en profondeur sur l'axe Z !
-2, 0, -10
-4, 0, -10
-6, 0, -10
-
-# Un petit pilier pour le style en dessous de l'arrivée
-6, -2, -10
+# Deuxieme transfert
+10, -2, 0
+12, -2, 0
+14, -2, 0

@@ -1,9 +1,12 @@
 # Bloc de départ
 0, 0, 0
+2, 0, 0
 
 # Le gouffre
 
 # Bloc d'arrivée (Plus bas et plus loin en profondeur,
 # mais il prend le relais exactement sur l'axe X)
-2, -2, -2
 4, -2, -2
+6, -2, -2
+8, -2, -2
+10, -2, -2

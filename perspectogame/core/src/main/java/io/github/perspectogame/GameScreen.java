@@ -329,8 +329,6 @@ public class GameScreen extends ScreenAdapter {
         Vector3 axeDroite = new Vector3(camera.direction).crs(camera.up).nor();
         Vector3 axeHaut = new Vector3(camera.up).nor();
         Vector3 axeVue = new Vector3(camera.direction).nor();
-        float tolerance = calculerToleranceAlignement();
-        float toleranceCarree = tolerance * tolerance;
         float determinantProjection = axeDroite.x * axeHaut.z - axeDroite.z * axeHaut.x;
         if (Math.abs(determinantProjection) < 0.0001f) {
             return null;
@@ -339,7 +337,7 @@ public class GameScreen extends ScreenAdapter {
         float inverseDeterminant = 1f / determinantProjection;
         float segmentDirX = axeDroite.z;
         float segmentDirY = axeHaut.z;
-        float zLocalPrefere = borner(positionBalle.z - blocSource.z, -DEMI_BLOC, DEMI_BLOC);
+        float zLocalTrajectoire = borner(positionBalle.z - blocSource.z, -DEMI_BLOC, DEMI_BLOC);
         Vector3 sortieCentre = new Vector3(blocSource.x + DEMI_BLOC, blocSource.y + HAUTEUR_BALLE, blocSource.z);
         Vector3 sortieCentreRelative = new Vector3(sortieCentre).sub(camera.position);
         float sortieCentreProjX = sortieCentreRelative.dot(axeDroite);
@@ -371,31 +369,25 @@ public class GameScreen extends ScreenAdapter {
                 continue;
             }
 
-            float zLocalSortie = borner(zLocalPrefere, intervalle[0], intervalle[1]);
+            if (zLocalTrajectoire < intervalle[0] || zLocalTrajectoire > intervalle[1]) {
+                continue;
+            }
+
+            float zLocalSortie = zLocalTrajectoire;
             float dxCible = dxBase + dxDir * zLocalSortie;
             float dzCible = dzBase + dzDir * zLocalSortie;
 
             Vector3 pointSortie = new Vector3(blocSource.x + DEMI_BLOC, blocSource.y + HAUTEUR_BALLE, blocSource.z + zLocalSortie);
             Vector3 pointEntree = new Vector3(bloc.x + dxCible, bloc.y + HAUTEUR_BALLE, bloc.z + dzCible);
 
-            Vector3 pointSortieRelative = new Vector3(pointSortie).sub(camera.position);
-            Vector3 pointEntreeRelative = new Vector3(pointEntree).sub(camera.position);
-            float deltaEcranX = pointEntreeRelative.dot(axeDroite) - pointSortieRelative.dot(axeDroite);
-            float deltaEcranY = pointEntreeRelative.dot(axeHaut) - pointSortieRelative.dot(axeHaut);
-            float ecartCarre = deltaEcranX * deltaEcranX + deltaEcranY * deltaEcranY;
-            if (ecartCarre > toleranceCarree) {
-                continue;
-            }
-
             float deltaProfondeur = new Vector3(pointEntree).sub(pointSortie).dot(axeVue);
             float profondeurAbsolue = Math.abs(deltaProfondeur);
-            float decalageSortie = zLocalSortie - zLocalPrefere;
-            float scoreConnexion = decalageSortie * decalageSortie;
+            float distanceDepuisCentre = Math.abs(zLocalSortie);
 
             if (meilleurPont == null
-                || scoreConnexion < meilleurPont.ecartCarre
-                || (Math.abs(scoreConnexion - meilleurPont.ecartCarre) < 0.0001f && profondeurAbsolue < meilleurPont.profondeur)) {
-                meilleurPont = new PontVisuel(bloc, pointSortie, pointEntree, scoreConnexion, profondeurAbsolue);
+                || distanceDepuisCentre < meilleurPont.ecartCarre
+                || (Math.abs(distanceDepuisCentre - meilleurPont.ecartCarre) < 0.0001f && profondeurAbsolue < meilleurPont.profondeur)) {
+                meilleurPont = new PontVisuel(bloc, pointSortie, pointEntree, distanceDepuisCentre, profondeurAbsolue);
             }
         }
 
@@ -410,7 +402,7 @@ public class GameScreen extends ScreenAdapter {
 
         pontActif = trouverPontVisuel(blocCourant);
         if (pontActif != null) {
-            pointPontInstance.transform.setToTranslation(pontActif.pointSortie);
+            pointPontInstance.transform.setToTranslation(pontActif.pointEntree);
         }
     }
 
