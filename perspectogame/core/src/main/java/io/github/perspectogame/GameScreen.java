@@ -31,24 +31,27 @@ public class GameScreen extends ScreenAdapter {
     private Model model;
     private ModelInstance instance;
     private Environment environment;
-    // pour l'interface 2D (Le Texte)
+
     private SpriteBatch batch;
     private BitmapFont font;
 
-    // pour les entités de jeu
     private Model balleModel;
     private ModelInstance balleInstance;
     private Model quilleModel;
     private ModelInstance quilleInstance;
 
-    // physiques de la balle
-    private Vector3 positionBalle;
-    private float vitesseX = 2.5f;
-    private float vitesseY = 0f;
-
-    private final float MARGE_TOLERANCE = 15.0f;
+    private final float MARGE_TOLERANCE = 30.0f; // On est plus généreux !
+    private Vector3 blocCourant = null;          // Mémorise le bloc sous la balle
 
     private List<Vector3> niveauActuel;
+
+    // --- NOUVELLES VARIABLES DE GAMEPLAY ---
+    private Vector3 positionBalle;
+    private Vector3 positionQuille;   // Position dynamique de l'objectif
+    private float vitesseX = 2.5f;
+    private float vitesseY = 0f;
+    private boolean enPause = true;        // Le jeu commence immobile
+    private boolean niveauComplete = false; // État de victoire
 
     public GameScreen(Main game, String nomFichier) {
         this.game = game;
@@ -65,38 +68,37 @@ public class GameScreen extends ScreenAdapter {
         camera.far = 100f;
         camera.update();
 
+        batch = new SpriteBatch();
+        font = new BitmapFont();
+        font.getData().setScale(1.5f);
+
         ModelBuilder modelBuilder = new ModelBuilder();
         model = modelBuilder.createBox(2f, 2f, 2f,
             new Material(ColorAttribute.createDiffuse(Color.GOLD)),
             Usage.Position | Usage.Normal);
-
         instance = new ModelInstance(model);
 
-        // --- 1. INITIALISATION DE L'INTERFACE 2D ---
-        batch = new SpriteBatch();
-        font = new BitmapFont();
-        font.getData().setScale(1.5f); // On grossit un peu le texte
-
-        // --- 2. CRÉATION DE LA BALLE ROUGE ---
         balleModel = modelBuilder.createSphere(1f, 1f, 1f, 20, 20,
             new Material(ColorAttribute.createDiffuse(Color.RED)),
             Usage.Position | Usage.Normal);
         balleInstance = new ModelInstance(balleModel);
-
-        // On place la balle sur le premier bloc (0, 0, 0).
-        // Comme le bloc fait 2 de haut, son sommet est à Y=1. On pose la balle à Y=1.5
         positionBalle = new Vector3(0f, 1.5f, 0f);
+        balleInstance.transform.setToTranslation(positionBalle);
 
-        // --- 3. CRÉATION DE LA QUILLE BLANCHE ---
         quilleModel = modelBuilder.createCylinder(0.8f, 2f, 0.8f, 16,
             new Material(ColorAttribute.createDiffuse(Color.WHITE)),
             Usage.Position | Usage.Normal);
         quilleInstance = new ModelInstance(quilleModel);
 
-        // On place la quille sur le dernier bloc de notre tuto.txt (2, 0, -4)
-        quilleInstance.transform.setToTranslation(2f, 2f, -4f);
-
+        // Chargement du niveau
         chargerNiveau(nomFichier);
+
+        // POSITIONNEMENT AUTOMATIQUE DE LA QUILLE SUR LE DERNIER BLOC
+        if (!niveauActuel.isEmpty()) {
+            Vector3 dernierBloc = niveauActuel.get(niveauActuel.size() - 1);
+            positionQuille = new Vector3(dernierBloc.x, dernierBloc.y + 2f, dernierBloc.z);
+            quilleInstance.transform.setToTranslation(positionQuille);
+        }
     }
 
     private void chargerNiveau(String nomFichier) {
@@ -121,111 +123,123 @@ public class GameScreen extends ScreenAdapter {
 
     @Override
     public void render(float delta) {
-        // --- PHYSIQUE ET LOGIQUE D'ILLUSION ---
-
-        // 1. La balle roule inexorablement vers l'avant (axe X)
-        positionBalle.x += vitesseX * delta;
-
-        boolean surUnBloc = false;
-        Vector3 blocCibleIllusion = null;
-
-        // 2. On analyse tous les blocs du niveau
-        for (Vector3 bloc : niveauActuel) {
-
-            // Nos blocs font 2x2x2. On vérifie si la balle est au-dessus (Bounding Box mathématique)
-            if (Math.abs(positionBalle.x - bloc.x) <= 1.0f && Math.abs(positionBalle.z - bloc.z) <= 1.0f) {
-                surUnBloc = true;
-                positionBalle.y = bloc.y + 1.5f; // On la maintient fermement sur le sol
-                vitesseY = 0f; // On annule la vitesse de chute
-                break; // On a trouvé notre sol, on arrête de chercher
-            }
-
-            // 3. LE TEST D'ILLUSION D'OPTIQUE
-            // Si on n'est pas physiquement sur ce bloc, on regarde s'il est "visuellement" connecté
-            // à la position actuelle de la balle à l'écran.
-            Vector3 surfaceBloc = new Vector3(bloc.x, bloc.y + 1.5f, bloc.z);
-            if (illusionsSontConnectees(positionBalle, surfaceBloc)) {
-                // On a trouvé un bloc qui s'aligne parfaitement avec notre trajectoire !
-                blocCibleIllusion = bloc;
-            }
-        }
-
-        // 4. Résolution du mouvement
-        if (!surUnBloc) {
-            if (blocCibleIllusion != null && vitesseY >= 0) {
-                // TÉLÉPORTATION Z ! Le joueur a réussi l'illusion.
-                // La balle passe instantanément sur l'autre bloc en profondeur.
-                positionBalle.z = blocCibleIllusion.z;
-                positionBalle.y = blocCibleIllusion.y + 1.5f;
-            } else {
-                // Le joueur a raté l'illusion (ou la caméra est mal tournée).
-                // La gravité (9.81 m/s²) attire la balle dans le vide.
-                vitesseY -= 9.81f * delta;
-                positionBalle.y += vitesseY * delta;
-            }
-        }
-
-        // 5. On applique la position calculée au modèle 3D juste avant de le dessiner
-        balleInstance.transform.setToTranslation(positionBalle);
-
-        // --- RETOUR AU MENU ---
+        // --- GESTION DU RETOUR MENU ---
         if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
             game.setScreen(new MenuScreen(game));
             return;
         }
 
-        // --- GESTION DES ENTRÉES SOURIS ---
+        // --- GESTION PAUSE / LANCE (Touche ESPACE pour éviter les conflits AZERTY/QWERTY) ---
+        if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE) && !niveauComplete) {
+            enPause = !enPause;
+        }
+
+        // --- GESTION DE LA CAMÉRA ---
         if (Gdx.input.isButtonPressed(Input.Buttons.LEFT)) {
             float deltaX = Gdx.input.getDeltaX();
             float deltaY = Gdx.input.getDeltaY();
             float sensibilite = 0.5f;
 
             camera.rotateAround(Vector3.Zero, Vector3.Y, deltaX * sensibilite);
-
             Vector3 axeDroit = new Vector3(camera.direction).crs(camera.up).nor();
             camera.rotateAround(Vector3.Zero, axeDroit, deltaY * sensibilite);
             camera.update();
         }
 
-        // --- DESSIN DE LA SCÈNE ---
+        // --- BOUCLE PHYSIQUE (Avec Snap d'Illusion sur les arêtes) ---
+        if (!enPause && !niveauComplete) {
+            positionBalle.x += vitesseX * delta;
+
+            boolean surUnBloc = false;
+
+            // 1. Test Physique : La balle est-elle physiquement sur un bloc ?
+            for (Vector3 bloc : niveauActuel) {
+                // On vérifie les limites X et Z du bloc actuel
+                if (Math.abs(positionBalle.x - bloc.x) <= 1.0f && Math.abs(positionBalle.z - bloc.z) <= 1.0f) {
+                    if (Math.abs(positionBalle.y - (bloc.y + 1.5f)) < 0.5f) {
+                        surUnBloc = true;
+                        positionBalle.y = bloc.y + 1.5f;
+                        positionBalle.z = bloc.z; // L'aimant pour garder la balle bien droite
+                        vitesseY = 0f;
+                        break;
+                    }
+                }
+            }
+
+            // 2. Test d'Illusion (Se déclenche uniquement à la microseconde où elle quitte le bord)
+            if (!surUnBloc && vitesseY == 0) {
+                // On projette la balle en plein vol sur l'écran
+                Vector3 projBalle = camera.project(new Vector3(positionBalle));
+
+                for (Vector3 bloc : niveauActuel) {
+                    // C'est ICI la magie : on cible l'arête GAUCHE du bloc cible
+                    Vector3 bordGauche = new Vector3(bloc.x - 1.0f, bloc.y + 1.5f, bloc.z);
+                    Vector3 projBordGauche = camera.project(new Vector3(bordGauche));
+
+                    // Distance euclidienne 2D sur l'écran : d = √((x2-x1)² + (y2-y1)²)
+                    float distPixels = (float) Math.sqrt(
+                        Math.pow(projBalle.x - projBordGauche.x, 2) +
+                        Math.pow(projBalle.y - projBordGauche.y, 2)
+                    );
+
+                    if (distPixels <= MARGE_TOLERANCE) {
+                        // L'alignement est validé : on téléporte la balle sur l'arête cible
+                        positionBalle.set(bordGauche);
+
+                        // On la pousse très légèrement de 5 cm pour valider
+                        // le Test Physique à l'itération suivante et éviter de boucler
+                        positionBalle.x += 0.05f;
+                        surUnBloc = true;
+                        break;
+                    }
+                }
+            }
+
+            // 3. Gravité et Défaite
+            if (!surUnBloc) {
+                vitesseY -= 9.81f * delta;
+                positionBalle.y += vitesseY * delta;
+
+                // Reset automatique si elle tombe trop bas
+                if (positionBalle.y < -15f) {
+                    positionBalle.set(0, 1.5f, 0);
+                    vitesseY = 0f;
+                    enPause = true;
+                }
+            }
+
+            balleInstance.transform.setToTranslation(positionBalle);
+
+            // 4. Victoire
+            if (positionQuille != null && positionBalle.dst(positionQuille) <= 1.2f) {
+                niveauComplete = true;
+            }
+        }
+
+        // --- RENDER SCÈNE 3D ---
         Gdx.gl.glViewport(0, 0, Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT | GL20.GL_DEPTH_BUFFER_BIT);
 
-        // --- A. DESSIN DE LA 3D ---
         modelBatch.begin(camera);
-
-        // Dessin du niveau (les blocs)
         for (Vector3 position : niveauActuel) {
             instance.transform.setToTranslation(position);
             modelBatch.render(instance, environment);
         }
-
-        // Dessin des entités
         modelBatch.render(balleInstance, environment);
         modelBatch.render(quilleInstance, environment);
-
         modelBatch.end();
 
-        // --- B. DESSIN DE L'INTERFACE 2D (HUD) ---
+        // --- RENDER INTERFACE UI 2D ---
         batch.begin();
-        // Le texte s'affiche en haut de l'écran
-        font.draw(batch, "TUTORIEL : Faites glisser la souris pour tourner la camera.", 20, Gdx.graphics.getHeight() - 20);
-        font.draw(batch, "Objectif : Alignez visuellement le bloc de depart avec le bloc d'arrivee.", 20, Gdx.graphics.getHeight() - 50);
+        if (niveauComplete) {
+            font.draw(batch, "VICTOIRE ! Niveau Complete !", Gdx.graphics.getWidth() / 2f - 120, Gdx.graphics.getHeight() / 2f + 20);
+            font.draw(batch, "Appuyez sur [ESC] pour retourner au menu.", Gdx.graphics.getWidth() / 2f - 160, Gdx.graphics.getHeight() / 2f - 20);
+        } else {
+            font.draw(batch, "Controles : Glisser la souris pour orienter la perspective.", 20, Gdx.graphics.getHeight() - 20);
+            font.draw(batch, "Statut : " + (enPause ? "IMMOBILE (Ajuste ton angle)" : "EN MOUVEMENT"), 20, Gdx.graphics.getHeight() - 50);
+            font.draw(batch, "Appuie sur [ESPACE] pour " + (enPause ? "LANCER LA BALLE" : "METTRE EN PAUSE"), 20, Gdx.graphics.getHeight() - 80);
+        }
         batch.end();
-    }
-
-    private boolean illusionsSontConnectees(Vector3 pointMondeA, Vector3 pointMondeB) {
-        Vector3 projA = new Vector3(pointMondeA);
-        Vector3 projB = new Vector3(pointMondeB);
-
-        camera.project(projA);
-        camera.project(projB);
-
-        float distanceX = projA.x - projB.x;
-        float distanceY = projA.y - projB.y;
-        float distanceEnPixels = (float) Math.sqrt((distanceX * distanceX) + (distanceY * distanceY));
-
-        return distanceEnPixels <= MARGE_TOLERANCE;
     }
 
     @Override
