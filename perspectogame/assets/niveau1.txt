@@ -1,0 +1,18 @@
+# --- PLATEFORME DE DÉPART (Là où la balle va rouler) ---
+-4, 0, 0
+-2, 0, 0
+0, 0, 0
+
+# --- LE GOUFFRE INFRANCHISSABLE ---
+# Physiquement, il manque un bloc à la coordonnée (2, 0, 0).
+# La balle tomberait dans le vide.
+
+# --- PLATEFORME D'ARRIVÉE (Là où se trouve la quille) ---
+# Cette plateforme est alignée sur l'axe X, mais elle est
+# reculée de 10 mètres en profondeur sur l'axe Z !
+2, 0, -10
+4, 0, -10
+6, 0, -10
+
+# Un petit pilier pour le style en dessous de l'arrivée
+6, -2, -10

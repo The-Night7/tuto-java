@@ -1,0 +1,7 @@
+# --- LE TUTORIEL ---
+# Une plateforme simple de départ
+0, 0, 0
+
+# La plateforme d'arrivée est juste derrière,
+# légèrement décalée vers la droite pour forcer la rotation
+2, 0, -4
