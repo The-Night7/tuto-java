@@ -24,7 +24,34 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class GameScreen extends ScreenAdapter {
-    private Main game;
+    private static final class PontVisuel {
+        private final Vector3 blocDestination;
+        private final float zEntree;
+        private final float ecartCarre;
+        private final float profondeur;
+
+        private PontVisuel(Vector3 blocDestination, float zEntree, float ecartCarre, float profondeur) {
+            this.blocDestination = blocDestination;
+            this.zEntree = zEntree;
+            this.ecartCarre = ecartCarre;
+            this.profondeur = profondeur;
+        }
+    }
+
+    private static final float LARGEUR_CAMERA = 15f;
+    private static final float TAILLE_BLOC = 2f;
+    private static final float DEMI_BLOC = TAILLE_BLOC / 2f;
+    private static final float RAYON_BALLE = 0.5f;
+    private static final float HAUTEUR_BALLE = DEMI_BLOC + RAYON_BALLE;
+    private static final float GRAVITE = 9.81f;
+    private static final float FIXED_STEP = 1f / 120f;
+    private static final float MAX_FRAME_TIME = 0.25f;
+    private static final float SNAP_TOLERANCE_PIXELS = 8f;
+    private static final float MIN_DEPTH_GAP = 0.05f;
+    private static final float Y_DEFAITE = -15f;
+    private static final float DISTANCE_VICTOIRE = 1.2f;
+
+    private final Main game;
 
     private OrthographicCamera camera;
     private ModelBatch modelBatch;
@@ -40,18 +67,18 @@ public class GameScreen extends ScreenAdapter {
     private Model quilleModel;
     private ModelInstance quilleInstance;
 
-    private final float MARGE_TOLERANCE = 30.0f; // On est plus généreux !
-    private Vector3 blocCourant = null;          // Mémorise le bloc sous la balle
+    private Vector3 blocCourant;
 
     private List<Vector3> niveauActuel;
 
-    // --- NOUVELLES VARIABLES DE GAMEPLAY ---
-    private Vector3 positionBalle;
-    private Vector3 positionQuille;   // Position dynamique de l'objectif
+    private final Vector3 positionBalle = new Vector3();
+    private final Vector3 positionDepart = new Vector3();
+    private Vector3 positionQuille;
     private float vitesseX = 2.5f;
     private float vitesseY = 0f;
-    private boolean enPause = true;        // Le jeu commence immobile
-    private boolean niveauComplete = false; // État de victoire
+    private float accumulateurPhysique = 0f;
+    private boolean enPause = true;
+    private boolean niveauComplete = false;
 
     public GameScreen(Main game, String nomFichier) {
         this.game = game;
@@ -61,7 +88,7 @@ public class GameScreen extends ScreenAdapter {
         environment.set(new ColorAttribute(ColorAttribute.AmbientLight, 0.4f, 0.4f, 0.4f, 1f));
         environment.add(new DirectionalLight().set(0.8f, 0.8f, 0.8f, -1f, -0.8f, -0.2f));
 
-        camera = new OrthographicCamera(15, 15 * (Gdx.graphics.getHeight() / (float)Gdx.graphics.getWidth()));
+        camera = new OrthographicCamera(LARGEUR_CAMERA, LARGEUR_CAMERA * (Gdx.graphics.getHeight() / (float) Gdx.graphics.getWidth()));
         camera.position.set(10f, 10f, 10f);
         camera.lookAt(0, 0, 0);
         camera.near = 1f;
@@ -82,7 +109,6 @@ public class GameScreen extends ScreenAdapter {
             new Material(ColorAttribute.createDiffuse(Color.RED)),
             Usage.Position | Usage.Normal);
         balleInstance = new ModelInstance(balleModel);
-        positionBalle = new Vector3(0f, 1.5f, 0f);
         balleInstance.transform.setToTranslation(positionBalle);
 
         quilleModel = modelBuilder.createCylinder(0.8f, 2f, 0.8f, 16,
@@ -90,15 +116,8 @@ public class GameScreen extends ScreenAdapter {
             Usage.Position | Usage.Normal);
         quilleInstance = new ModelInstance(quilleModel);
 
-        // Chargement du niveau
         chargerNiveau(nomFichier);
-
-        // POSITIONNEMENT AUTOMATIQUE DE LA QUILLE SUR LE DERNIER BLOC
-        if (!niveauActuel.isEmpty()) {
-            Vector3 dernierBloc = niveauActuel.get(niveauActuel.size() - 1);
-            positionQuille = new Vector3(dernierBloc.x, dernierBloc.y + 2f, dernierBloc.z);
-            quilleInstance.transform.setToTranslation(positionQuille);
-        }
+        initialiserNiveau();
     }
 
     private void chargerNiveau(String nomFichier) {
@@ -121,20 +140,226 @@ public class GameScreen extends ScreenAdapter {
         }
     }
 
+    private void initialiserNiveau() {
+        if (niveauActuel.isEmpty()) {
+            positionQuille = null;
+            blocCourant = null;
+            positionBalle.setZero();
+            return;
+        }
+
+        Vector3 premierBloc = niveauActuel.get(0);
+        blocCourant = premierBloc;
+        positionDepart.set(premierBloc.x, premierBloc.y + HAUTEUR_BALLE, premierBloc.z);
+        positionBalle.set(positionDepart);
+        balleInstance.transform.setToTranslation(positionBalle);
+
+        Vector3 dernierBloc = niveauActuel.get(niveauActuel.size() - 1);
+        positionQuille = new Vector3(dernierBloc.x, dernierBloc.y + 2f, dernierBloc.z);
+        quilleInstance.transform.setToTranslation(positionQuille);
+    }
+
+    private void simulerPhysique(float delta) {
+        float tempsFrame = Math.min(delta, MAX_FRAME_TIME);
+        accumulateurPhysique += tempsFrame;
+
+        while (accumulateurPhysique >= FIXED_STEP) {
+            avancerSimulation(FIXED_STEP);
+            accumulateurPhysique -= FIXED_STEP;
+
+            if (niveauComplete) {
+                accumulateurPhysique = 0f;
+                break;
+            }
+        }
+    }
+
+    private void avancerSimulation(float delta) {
+        if (blocCourant != null) {
+            avancerSurBloc(delta);
+        } else {
+            appliquerChute(delta);
+        }
+
+        verifierVictoire();
+    }
+
+    private void avancerSurBloc(float delta) {
+        positionBalle.y = blocCourant.y + HAUTEUR_BALLE;
+        positionBalle.z = borner(positionBalle.z, blocCourant.z - DEMI_BLOC, blocCourant.z + DEMI_BLOC);
+        vitesseY = 0f;
+
+        float bordSortieX = blocCourant.x + DEMI_BLOC;
+        float prochainX = positionBalle.x + vitesseX * delta;
+        if (prochainX < bordSortieX) {
+            positionBalle.x = prochainX;
+            return;
+        }
+
+        float distanceJusquAuBord = Math.max(0f, bordSortieX - positionBalle.x);
+        float tempsJusquAuBord = vitesseX > 0f ? distanceJusquAuBord / vitesseX : 0f;
+        float tempsRestant = Math.max(0f, delta - tempsJusquAuBord);
+        positionBalle.x = bordSortieX;
+
+        PontVisuel pont = trouverPontVisuel(blocCourant);
+        if (pont != null) {
+            blocCourant = pont.blocDestination;
+            positionBalle.x = pont.blocDestination.x - DEMI_BLOC;
+            positionBalle.y = pont.blocDestination.y + HAUTEUR_BALLE;
+            positionBalle.z = pont.zEntree;
+
+            if (tempsRestant > 0f) {
+                positionBalle.x = Math.min(positionBalle.x + vitesseX * tempsRestant, blocCourant.x + DEMI_BLOC);
+            }
+            return;
+        }
+
+        blocCourant = null;
+        if (tempsRestant > 0f) {
+            appliquerChute(tempsRestant);
+        }
+    }
+
+    private void appliquerChute(float delta) {
+        float yAvant = positionBalle.y;
+        vitesseY -= GRAVITE * delta;
+        float yApres = positionBalle.y + vitesseY * delta;
+
+        Vector3 blocAtterrissage = trouverBlocAtterrissage(positionBalle.x, positionBalle.z, yAvant, yApres);
+        if (blocAtterrissage != null) {
+            blocCourant = blocAtterrissage;
+            vitesseY = 0f;
+            positionBalle.y = blocAtterrissage.y + HAUTEUR_BALLE;
+            positionBalle.z = borner(positionBalle.z, blocAtterrissage.z - DEMI_BLOC, blocAtterrissage.z + DEMI_BLOC);
+            return;
+        }
+
+        positionBalle.y = yApres;
+        if (positionBalle.y < Y_DEFAITE) {
+            reinitialiserBalle();
+        }
+    }
+
+    private Vector3 trouverBlocAtterrissage(float x, float z, float yAvant, float yApres) {
+        Vector3 meilleurBloc = null;
+        float meilleurSol = Float.NEGATIVE_INFINITY;
+
+        for (Vector3 bloc : niveauActuel) {
+            if (Math.abs(x - bloc.x) > DEMI_BLOC || Math.abs(z - bloc.z) > DEMI_BLOC) {
+                continue;
+            }
+
+            float hauteurSol = bloc.y + HAUTEUR_BALLE;
+            if (yAvant >= hauteurSol && yApres <= hauteurSol && hauteurSol > meilleurSol) {
+                meilleurSol = hauteurSol;
+                meilleurBloc = bloc;
+            }
+        }
+
+        return meilleurBloc;
+    }
+
+    private PontVisuel trouverPontVisuel(Vector3 blocSource) {
+        Vector3 axeDroite = new Vector3(camera.direction).crs(camera.up).nor();
+        Vector3 axeHaut = new Vector3(camera.up).nor();
+        Vector3 axeVue = new Vector3(camera.direction).nor();
+
+        Vector3 sortie = new Vector3(blocSource.x + DEMI_BLOC, blocSource.y + HAUTEUR_BALLE, positionBalle.z);
+        Vector3 sortieRelative = new Vector3(sortie).sub(camera.position);
+        float sortieX = sortieRelative.dot(axeDroite);
+        float sortieY = sortieRelative.dot(axeHaut);
+        float sortieProfondeur = sortieRelative.dot(axeVue);
+
+        float tolerance = calculerToleranceAlignement();
+        float toleranceCarree = tolerance * tolerance;
+        float entreeDirX = axeDroite.z;
+        float entreeDirY = axeHaut.z;
+        float entreeDirProfondeur = axeVue.z;
+        float longueurDirCarree = entreeDirX * entreeDirX + entreeDirY * entreeDirY;
+        PontVisuel meilleurPont = null;
+
+        for (Vector3 bloc : niveauActuel) {
+            if (bloc == blocSource || bloc.x <= blocSource.x) {
+                continue;
+            }
+
+            Vector3 entreeBase = new Vector3(bloc.x - DEMI_BLOC, bloc.y + HAUTEUR_BALLE, bloc.z);
+            Vector3 entreeRelative = new Vector3(entreeBase).sub(camera.position);
+            float entreeBaseX = entreeRelative.dot(axeDroite);
+            float entreeBaseY = entreeRelative.dot(axeHaut);
+            float entreeBaseProfondeur = entreeRelative.dot(axeVue);
+
+            float zLocal;
+            float pointEntreeX;
+            float pointEntreeY;
+            if (longueurDirCarree < 0.0001f) {
+                zLocal = borner(positionBalle.z - bloc.z, -DEMI_BLOC, DEMI_BLOC);
+                pointEntreeX = entreeBaseX;
+                pointEntreeY = entreeBaseY;
+            } else {
+                float projection = ((sortieX - entreeBaseX) * entreeDirX + (sortieY - entreeBaseY) * entreeDirY) / longueurDirCarree;
+                zLocal = borner(projection, -DEMI_BLOC, DEMI_BLOC);
+                pointEntreeX = entreeBaseX + entreeDirX * zLocal;
+                pointEntreeY = entreeBaseY + entreeDirY * zLocal;
+            }
+
+            float deltaX = pointEntreeX - sortieX;
+            float deltaY = pointEntreeY - sortieY;
+            float ecartCarre = deltaX * deltaX + deltaY * deltaY;
+            if (ecartCarre > toleranceCarree) {
+                continue;
+            }
+
+            float deltaProfondeur = entreeBaseProfondeur + entreeDirProfondeur * zLocal - sortieProfondeur;
+            if (deltaProfondeur <= MIN_DEPTH_GAP) {
+                continue;
+            }
+
+            if (meilleurPont == null
+                || ecartCarre < meilleurPont.ecartCarre
+                || (Math.abs(ecartCarre - meilleurPont.ecartCarre) < 0.0001f && deltaProfondeur < meilleurPont.profondeur)) {
+                meilleurPont = new PontVisuel(bloc, bloc.z + zLocal, ecartCarre, deltaProfondeur);
+            }
+        }
+
+        return meilleurPont;
+    }
+
+    private float calculerToleranceAlignement() {
+        float mondeParPixelX = camera.viewportWidth * camera.zoom / Gdx.graphics.getWidth();
+        float mondeParPixelY = camera.viewportHeight * camera.zoom / Gdx.graphics.getHeight();
+        return SNAP_TOLERANCE_PIXELS * Math.min(mondeParPixelX, mondeParPixelY);
+    }
+
+    private void verifierVictoire() {
+        if (positionQuille != null && positionBalle.dst(positionQuille) <= DISTANCE_VICTOIRE) {
+            niveauComplete = true;
+        }
+    }
+
+    private void reinitialiserBalle() {
+        positionBalle.set(positionDepart);
+        blocCourant = niveauActuel.isEmpty() ? null : niveauActuel.get(0);
+        vitesseY = 0f;
+        accumulateurPhysique = 0f;
+        enPause = true;
+    }
+
+    private float borner(float valeur, float min, float max) {
+        return Math.max(min, Math.min(max, valeur));
+    }
+
     @Override
     public void render(float delta) {
-        // --- GESTION DU RETOUR MENU ---
         if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
             game.setScreen(new MenuScreen(game));
             return;
         }
 
-        // --- GESTION PAUSE / LANCE (Touche ESPACE pour éviter les conflits AZERTY/QWERTY) ---
         if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE) && !niveauComplete) {
             enPause = !enPause;
         }
 
-        // --- GESTION DE LA CAMÉRA ---
         if (Gdx.input.isButtonPressed(Input.Buttons.LEFT)) {
             float deltaX = Gdx.input.getDeltaX();
             float deltaY = Gdx.input.getDeltaY();
@@ -146,88 +371,12 @@ public class GameScreen extends ScreenAdapter {
             camera.update();
         }
 
-        // --- BOUCLE PHYSIQUE (Avec Pont Pré-calculé en Screen-Space) ---
         if (!enPause && !niveauComplete) {
-            positionBalle.x += vitesseX * delta;
-
-            boolean surUnBloc = false;
-            Vector3 prochainBlocCible = null;
-
-            // 1. Détection du sol physique normal
-            for (Vector3 bloc : niveauActuel) {
-                if (Math.abs(positionBalle.x - bloc.x) <= 1.0f && Math.abs(positionBalle.z - bloc.z) <= 1.0f) {
-                    if (Math.abs(positionBalle.y - (bloc.y + 1.5f)) < 0.5f) {
-                        surUnBloc = true;
-                        blocCourant = bloc; // On mémorise sur quel bloc on est !
-                        positionBalle.y = bloc.y + 1.5f;
-                        positionBalle.z = bloc.z;
-                        vitesseY = 0f;
-                        break;
-                    }
-                }
-            }
-
-            // 2. Le Test d'Illusion (Géométrie pure, indépendant du framerate)
-            // Si la balle tombe, MAIS qu'on sait de quel bloc elle vient de chuter
-            if (!surUnBloc && vitesseY == 0 && blocCourant != null) {
-
-                // On calcule les pixels exacts de l'arête de SORTIE du bloc actuel
-                Vector3 areteSortie = new Vector3(blocCourant.x + 1.0f, blocCourant.y + 1.5f, blocCourant.z);
-                Vector3 projSortie = camera.project(new Vector3(areteSortie));
-
-                // On scanne tous les autres blocs pour voir si une arête d'ENTRÉE correspond
-                for (Vector3 bloc : niveauActuel) {
-                    if (bloc == blocCourant) continue; // On ignore le bloc actuel
-
-                    Vector3 areteEntree = new Vector3(bloc.x - 1.0f, bloc.y + 1.5f, bloc.z);
-                    Vector3 projEntree = camera.project(new Vector3(areteEntree));
-
-                    // Distance Euclidienne 2D sur l'écran
-                    float distPixels = (float) Math.sqrt(
-                        Math.pow(projSortie.x - projEntree.x, 2) +
-                        Math.pow(projSortie.y - projEntree.y, 2)
-                    );
-
-                    if (distPixels <= MARGE_TOLERANCE) {
-                        prochainBlocCible = bloc; // Le pont est validé !
-                        break;
-                    }
-                }
-
-                // Si un pont existe, on rattrape la balle avant qu'elle ne tombe
-                if (prochainBlocCible != null) {
-                    // On la place juste après l'arête d'entrée du nouveau bloc
-                    positionBalle.x = prochainBlocCible.x - 0.95f;
-                    positionBalle.y = prochainBlocCible.y + 1.5f;
-                    positionBalle.z = prochainBlocCible.z;
-
-                    surUnBloc = true;
-                    blocCourant = prochainBlocCible; // Le nouveau bloc devient le bloc courant
-                }
-            }
-
-            // 3. Gravité et Défaite (Si aucun pont visuel n'a été trouvé)
-            if (!surUnBloc) {
-                vitesseY -= 9.81f * delta;
-                positionBalle.y += vitesseY * delta;
-                blocCourant = null; // En chute libre, il n'y a plus de sol
-
-                if (positionBalle.y < -15f) {
-                    positionBalle.set(0, 1.5f, 0);
-                    vitesseY = 0f;
-                    enPause = true;
-                }
-            }
-
-            balleInstance.transform.setToTranslation(positionBalle);
-
-            // 4. Victoire
-            if (positionQuille != null && positionBalle.dst(positionQuille) <= 1.2f) {
-                niveauComplete = true;
-            }
+            simulerPhysique(delta);
         }
 
-        // --- RENDER SCÈNE 3D ---
+        balleInstance.transform.setToTranslation(positionBalle);
+
         Gdx.gl.glViewport(0, 0, Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT | GL20.GL_DEPTH_BUFFER_BIT);
 
@@ -237,10 +386,11 @@ public class GameScreen extends ScreenAdapter {
             modelBatch.render(instance, environment);
         }
         modelBatch.render(balleInstance, environment);
-        modelBatch.render(quilleInstance, environment);
+        if (positionQuille != null) {
+            modelBatch.render(quilleInstance, environment);
+        }
         modelBatch.end();
 
-        // --- RENDER INTERFACE UI 2D ---
         batch.begin();
         if (niveauComplete) {
             font.draw(batch, "VICTOIRE ! Niveau Complete !", Gdx.graphics.getWidth() / 2f - 120, Gdx.graphics.getHeight() / 2f + 20);
@@ -251,6 +401,13 @@ public class GameScreen extends ScreenAdapter {
             font.draw(batch, "Appuie sur [ESPACE] pour " + (enPause ? "LANCER LA BALLE" : "METTRE EN PAUSE"), 20, Gdx.graphics.getHeight() - 80);
         }
         batch.end();
+    }
+
+    @Override
+    public void resize(int width, int height) {
+        camera.viewportWidth = LARGEUR_CAMERA;
+        camera.viewportHeight = LARGEUR_CAMERA * (height / (float) width);
+        camera.update();
     }
 
     @Override
