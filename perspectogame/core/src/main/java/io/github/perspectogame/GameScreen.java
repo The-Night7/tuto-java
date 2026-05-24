@@ -48,6 +48,7 @@ public class GameScreen extends ScreenAdapter {
     private static final float MAX_FRAME_TIME = 0.25f;
     private static final float SNAP_TOLERANCE_PIXELS = 8f;
     private static final float MIN_DEPTH_GAP = 0.05f;
+    private static final float BORD_EPSILON = 0.01f;
     private static final float Y_DEFAITE = -15f;
     private static final float DISTANCE_VICTOIRE = 1.2f;
 
@@ -215,6 +216,7 @@ public class GameScreen extends ScreenAdapter {
         }
 
         blocCourant = null;
+        positionBalle.x = bordSortieX + BORD_EPSILON;
         if (tempsRestant > 0f) {
             appliquerChute(tempsRestant);
         }
@@ -263,8 +265,9 @@ public class GameScreen extends ScreenAdapter {
         Vector3 axeDroite = new Vector3(camera.direction).crs(camera.up).nor();
         Vector3 axeHaut = new Vector3(camera.up).nor();
         Vector3 axeVue = new Vector3(camera.direction).nor();
+        float zLocalSource = borner(positionBalle.z - blocSource.z, -DEMI_BLOC, DEMI_BLOC);
 
-        Vector3 sortie = new Vector3(blocSource.x + DEMI_BLOC, blocSource.y + HAUTEUR_BALLE, positionBalle.z);
+        Vector3 sortie = new Vector3(blocSource.x + DEMI_BLOC, blocSource.y + HAUTEUR_BALLE, blocSource.z + zLocalSource);
         Vector3 sortieRelative = new Vector3(sortie).sub(camera.position);
         float sortieX = sortieRelative.dot(axeDroite);
         float sortieY = sortieRelative.dot(axeHaut);
@@ -272,10 +275,6 @@ public class GameScreen extends ScreenAdapter {
 
         float tolerance = calculerToleranceAlignement();
         float toleranceCarree = tolerance * tolerance;
-        float entreeDirX = axeDroite.z;
-        float entreeDirY = axeHaut.z;
-        float entreeDirProfondeur = axeVue.z;
-        float longueurDirCarree = entreeDirX * entreeDirX + entreeDirY * entreeDirY;
         PontVisuel meilleurPont = null;
 
         for (Vector3 bloc : niveauActuel) {
@@ -283,34 +282,16 @@ public class GameScreen extends ScreenAdapter {
                 continue;
             }
 
-            Vector3 entreeBase = new Vector3(bloc.x - DEMI_BLOC, bloc.y + HAUTEUR_BALLE, bloc.z);
-            Vector3 entreeRelative = new Vector3(entreeBase).sub(camera.position);
-            float entreeBaseX = entreeRelative.dot(axeDroite);
-            float entreeBaseY = entreeRelative.dot(axeHaut);
-            float entreeBaseProfondeur = entreeRelative.dot(axeVue);
-
-            float zLocal;
-            float pointEntreeX;
-            float pointEntreeY;
-            if (longueurDirCarree < 0.0001f) {
-                zLocal = borner(positionBalle.z - bloc.z, -DEMI_BLOC, DEMI_BLOC);
-                pointEntreeX = entreeBaseX;
-                pointEntreeY = entreeBaseY;
-            } else {
-                float projection = ((sortieX - entreeBaseX) * entreeDirX + (sortieY - entreeBaseY) * entreeDirY) / longueurDirCarree;
-                zLocal = borner(projection, -DEMI_BLOC, DEMI_BLOC);
-                pointEntreeX = entreeBaseX + entreeDirX * zLocal;
-                pointEntreeY = entreeBaseY + entreeDirY * zLocal;
-            }
-
-            float deltaX = pointEntreeX - sortieX;
-            float deltaY = pointEntreeY - sortieY;
+            Vector3 entree = new Vector3(bloc.x - DEMI_BLOC, bloc.y + HAUTEUR_BALLE, bloc.z + zLocalSource);
+            Vector3 entreeRelative = new Vector3(entree).sub(camera.position);
+            float deltaX = entreeRelative.dot(axeDroite) - sortieX;
+            float deltaY = entreeRelative.dot(axeHaut) - sortieY;
             float ecartCarre = deltaX * deltaX + deltaY * deltaY;
             if (ecartCarre > toleranceCarree) {
                 continue;
             }
 
-            float deltaProfondeur = entreeBaseProfondeur + entreeDirProfondeur * zLocal - sortieProfondeur;
+            float deltaProfondeur = entreeRelative.dot(axeVue) - sortieProfondeur;
             if (deltaProfondeur <= MIN_DEPTH_GAP) {
                 continue;
             }
@@ -318,7 +299,7 @@ public class GameScreen extends ScreenAdapter {
             if (meilleurPont == null
                 || ecartCarre < meilleurPont.ecartCarre
                 || (Math.abs(ecartCarre - meilleurPont.ecartCarre) < 0.0001f && deltaProfondeur < meilleurPont.profondeur)) {
-                meilleurPont = new PontVisuel(bloc, bloc.z + zLocal, ecartCarre, deltaProfondeur);
+                meilleurPont = new PontVisuel(bloc, bloc.z + zLocalSource, ecartCarre, deltaProfondeur);
             }
         }
 
