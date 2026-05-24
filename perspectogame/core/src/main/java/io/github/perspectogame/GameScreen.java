@@ -26,13 +26,15 @@ import java.util.List;
 public class GameScreen extends ScreenAdapter {
     private static final class PontVisuel {
         private final Vector3 blocDestination;
-        private final float zEntree;
+        private final Vector3 pointSortie;
+        private final Vector3 pointEntree;
         private final float ecartCarre;
         private final float profondeur;
 
-        private PontVisuel(Vector3 blocDestination, float zEntree, float ecartCarre, float profondeur) {
+        private PontVisuel(Vector3 blocDestination, Vector3 pointSortie, Vector3 pointEntree, float ecartCarre, float profondeur) {
             this.blocDestination = blocDestination;
-            this.zEntree = zEntree;
+            this.pointSortie = new Vector3(pointSortie);
+            this.pointEntree = new Vector3(pointEntree);
             this.ecartCarre = ecartCarre;
             this.profondeur = profondeur;
         }
@@ -79,8 +81,11 @@ public class GameScreen extends ScreenAdapter {
     private ModelInstance balleInstance;
     private Model quilleModel;
     private ModelInstance quilleInstance;
+    private Model pointPontModel;
+    private ModelInstance pointPontInstance;
 
     private Vector3 blocCourant;
+    private PontVisuel pontActif;
 
     private List<Vector3> niveauActuel;
 
@@ -129,6 +134,11 @@ public class GameScreen extends ScreenAdapter {
             Usage.Position | Usage.Normal);
         quilleInstance = new ModelInstance(quilleModel);
 
+        pointPontModel = modelBuilder.createSphere(0.35f, 0.35f, 0.35f, 16, 16,
+            new Material(ColorAttribute.createDiffuse(Color.CYAN)),
+            Usage.Position | Usage.Normal);
+        pointPontInstance = new ModelInstance(pointPontModel);
+
         chargerNiveau(nomFichier);
         initialiserNiveau();
     }
@@ -170,6 +180,7 @@ public class GameScreen extends ScreenAdapter {
         Vector3 dernierBloc = niveauActuel.get(niveauActuel.size() - 1);
         positionQuille = new Vector3(dernierBloc.x, dernierBloc.y + 2f, dernierBloc.z);
         quilleInstance.transform.setToTranslation(positionQuille);
+        mettreAJourPontActif();
     }
 
     private void simulerPhysique(float delta) {
@@ -215,11 +226,10 @@ public class GameScreen extends ScreenAdapter {
         positionBalle.x = bordSortieX;
 
         PontVisuel pont = trouverPontVisuel(blocCourant);
+        pontActif = pont;
         if (pont != null) {
             blocCourant = pont.blocDestination;
-            positionBalle.x = pont.blocDestination.x - DEMI_BLOC;
-            positionBalle.y = pont.blocDestination.y + HAUTEUR_BALLE;
-            positionBalle.z = pont.zEntree;
+            positionBalle.set(pont.pointEntree);
 
             if (tempsRestant > 0f) {
                 positionBalle.x = Math.min(positionBalle.x + vitesseX * tempsRestant, blocCourant.x + DEMI_BLOC);
@@ -319,20 +329,21 @@ public class GameScreen extends ScreenAdapter {
         Vector3 axeDroite = new Vector3(camera.direction).crs(camera.up).nor();
         Vector3 axeHaut = new Vector3(camera.up).nor();
         Vector3 axeVue = new Vector3(camera.direction).nor();
-        float zLocalSource = borner(positionBalle.z - blocSource.z, -DEMI_BLOC, DEMI_BLOC);
-
-        Vector3 sortie = new Vector3(blocSource.x + DEMI_BLOC, blocSource.y + HAUTEUR_BALLE, blocSource.z + zLocalSource);
-        Vector3 sortieRelative = new Vector3(sortie).sub(camera.position);
-        float sortieX = sortieRelative.dot(axeDroite);
-        float sortieY = sortieRelative.dot(axeHaut);
-        float sortieProfondeur = sortieRelative.dot(axeVue);
-
         float tolerance = calculerToleranceAlignement();
         float toleranceCarree = tolerance * tolerance;
+        float determinantProjection = axeDroite.x * axeHaut.z - axeDroite.z * axeHaut.x;
+        if (Math.abs(determinantProjection) < 0.0001f) {
+            return null;
+        }
+
+        float inverseDeterminant = 1f / determinantProjection;
         float segmentDirX = axeDroite.z;
         float segmentDirY = axeHaut.z;
-        float segmentDirProfondeur = axeVue.z;
-        float longueurSegmentCarree = segmentDirX * segmentDirX + segmentDirY * segmentDirY;
+        float zLocalPrefere = borner(positionBalle.z - blocSource.z, -DEMI_BLOC, DEMI_BLOC);
+        Vector3 sortieCentre = new Vector3(blocSource.x + DEMI_BLOC, blocSource.y + HAUTEUR_BALLE, blocSource.z);
+        Vector3 sortieCentreRelative = new Vector3(sortieCentre).sub(camera.position);
+        float sortieCentreProjX = sortieCentreRelative.dot(axeDroite);
+        float sortieCentreProjY = sortieCentreRelative.dot(axeHaut);
         PontVisuel meilleurPont = null;
 
         for (Vector3 bloc : niveauActuel) {
@@ -340,50 +351,67 @@ public class GameScreen extends ScreenAdapter {
                 continue;
             }
 
-            Vector3 entreeBase = new Vector3(bloc.x - DEMI_BLOC, bloc.y + HAUTEUR_BALLE, bloc.z);
-            Vector3 entreeRelative = new Vector3(entreeBase).sub(camera.position);
-            float entreeBaseX = entreeRelative.dot(axeDroite);
-            float entreeBaseY = entreeRelative.dot(axeHaut);
-            float entreeBaseProfondeur = entreeRelative.dot(axeVue);
+            Vector3 centreSurface = new Vector3(bloc.x, bloc.y + HAUTEUR_BALLE, bloc.z);
+            Vector3 centreSurfaceRelative = new Vector3(centreSurface).sub(camera.position);
+            float centreSurfaceProjX = centreSurfaceRelative.dot(axeDroite);
+            float centreSurfaceProjY = centreSurfaceRelative.dot(axeHaut);
 
-            float zLocalCible;
-            float pointEntreeX;
-            float pointEntreeY;
-            float pointEntreeProfondeur;
-            if (longueurSegmentCarree < 0.0001f) {
-                zLocalCible = borner(positionBalle.z - bloc.z, -DEMI_BLOC, DEMI_BLOC);
-                pointEntreeX = entreeBaseX;
-                pointEntreeY = entreeBaseY;
-                pointEntreeProfondeur = entreeBaseProfondeur + segmentDirProfondeur * zLocalCible;
-            } else {
-                float projection = ((sortieX - entreeBaseX) * segmentDirX + (sortieY - entreeBaseY) * segmentDirY) / longueurSegmentCarree;
-                zLocalCible = borner(projection, -DEMI_BLOC, DEMI_BLOC);
-                pointEntreeX = entreeBaseX + segmentDirX * zLocalCible;
-                pointEntreeY = entreeBaseY + segmentDirY * zLocalCible;
-                pointEntreeProfondeur = entreeBaseProfondeur + segmentDirProfondeur * zLocalCible;
+            float sortieVersCentreX = sortieCentreProjX - centreSurfaceProjX;
+            float sortieVersCentreY = sortieCentreProjY - centreSurfaceProjY;
+            float dxBase = inverseDeterminant * (axeHaut.z * sortieVersCentreX - axeDroite.z * sortieVersCentreY);
+            float dzBase = inverseDeterminant * (-axeHaut.x * sortieVersCentreX + axeDroite.x * sortieVersCentreY);
+            float dxDir = inverseDeterminant * (axeHaut.z * segmentDirX - axeDroite.z * segmentDirY);
+            float dzDir = inverseDeterminant * (-axeHaut.x * segmentDirX + axeDroite.x * segmentDirY);
+
+            float[] intervalle = {-DEMI_BLOC, DEMI_BLOC};
+            if (!restreindreIntervalle(intervalle, dxBase, dxDir, -DEMI_BLOC, DEMI_BLOC)) {
+                continue;
+            }
+            if (!restreindreIntervalle(intervalle, dzBase, dzDir, -DEMI_BLOC, DEMI_BLOC)) {
+                continue;
             }
 
-            float deltaX = pointEntreeX - sortieX;
-            float deltaY = pointEntreeY - sortieY;
-            float ecartCarre = deltaX * deltaX + deltaY * deltaY;
+            float zLocalSortie = borner(zLocalPrefere, intervalle[0], intervalle[1]);
+            float dxCible = dxBase + dxDir * zLocalSortie;
+            float dzCible = dzBase + dzDir * zLocalSortie;
+
+            Vector3 pointSortie = new Vector3(blocSource.x + DEMI_BLOC, blocSource.y + HAUTEUR_BALLE, blocSource.z + zLocalSortie);
+            Vector3 pointEntree = new Vector3(bloc.x + dxCible, bloc.y + HAUTEUR_BALLE, bloc.z + dzCible);
+
+            Vector3 pointSortieRelative = new Vector3(pointSortie).sub(camera.position);
+            Vector3 pointEntreeRelative = new Vector3(pointEntree).sub(camera.position);
+            float deltaEcranX = pointEntreeRelative.dot(axeDroite) - pointSortieRelative.dot(axeDroite);
+            float deltaEcranY = pointEntreeRelative.dot(axeHaut) - pointSortieRelative.dot(axeHaut);
+            float ecartCarre = deltaEcranX * deltaEcranX + deltaEcranY * deltaEcranY;
             if (ecartCarre > toleranceCarree) {
                 continue;
             }
 
-            float deltaProfondeur = pointEntreeProfondeur - sortieProfondeur;
+            float deltaProfondeur = new Vector3(pointEntree).sub(pointSortie).dot(axeVue);
             float profondeurAbsolue = Math.abs(deltaProfondeur);
-            if (profondeurAbsolue <= MIN_DEPTH_GAP) {
-                continue;
-            }
+            float decalageSortie = zLocalSortie - zLocalPrefere;
+            float scoreConnexion = decalageSortie * decalageSortie;
 
             if (meilleurPont == null
-                || ecartCarre < meilleurPont.ecartCarre
-                || (Math.abs(ecartCarre - meilleurPont.ecartCarre) < 0.0001f && profondeurAbsolue < meilleurPont.profondeur)) {
-                meilleurPont = new PontVisuel(bloc, bloc.z + zLocalCible, ecartCarre, profondeurAbsolue);
+                || scoreConnexion < meilleurPont.ecartCarre
+                || (Math.abs(scoreConnexion - meilleurPont.ecartCarre) < 0.0001f && profondeurAbsolue < meilleurPont.profondeur)) {
+                meilleurPont = new PontVisuel(bloc, pointSortie, pointEntree, scoreConnexion, profondeurAbsolue);
             }
         }
 
         return meilleurPont;
+    }
+
+    private void mettreAJourPontActif() {
+        if (blocCourant == null || niveauComplete) {
+            pontActif = null;
+            return;
+        }
+
+        pontActif = trouverPontVisuel(blocCourant);
+        if (pontActif != null) {
+            pointPontInstance.transform.setToTranslation(pontActif.pointSortie);
+        }
     }
 
     private float calculerToleranceAlignement() {
@@ -404,10 +432,25 @@ public class GameScreen extends ScreenAdapter {
         vitesseY = 0f;
         accumulateurPhysique = 0f;
         enPause = true;
+        mettreAJourPontActif();
     }
 
     private float borner(float valeur, float min, float max) {
         return Math.max(min, Math.min(max, valeur));
+    }
+
+    private boolean restreindreIntervalle(float[] intervalle, float base, float pente, float min, float max) {
+        if (Math.abs(pente) < 0.0001f) {
+            return base >= min && base <= max;
+        }
+
+        float t1 = (min - base) / pente;
+        float t2 = (max - base) / pente;
+        float borneMin = Math.min(t1, t2);
+        float borneMax = Math.max(t1, t2);
+        intervalle[0] = Math.max(intervalle[0], borneMin);
+        intervalle[1] = Math.min(intervalle[1], borneMax);
+        return intervalle[0] <= intervalle[1];
     }
 
     @Override
@@ -432,9 +475,11 @@ public class GameScreen extends ScreenAdapter {
             camera.update();
         }
 
+        mettreAJourPontActif();
         if (!enPause && !niveauComplete) {
             simulerPhysique(delta);
         }
+        mettreAJourPontActif();
 
         balleInstance.transform.setToTranslation(positionBalle);
 
@@ -447,6 +492,9 @@ public class GameScreen extends ScreenAdapter {
             modelBatch.render(instance, environment);
         }
         modelBatch.render(balleInstance, environment);
+        if (pontActif != null) {
+            modelBatch.render(pointPontInstance, environment);
+        }
         if (positionQuille != null) {
             modelBatch.render(quilleInstance, environment);
         }
@@ -477,6 +525,7 @@ public class GameScreen extends ScreenAdapter {
         model.dispose();
         balleModel.dispose();
         quilleModel.dispose();
+        pointPontModel.dispose();
         batch.dispose();
         font.dispose();
     }
