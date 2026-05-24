@@ -146,61 +146,72 @@ public class GameScreen extends ScreenAdapter {
             camera.update();
         }
 
-        // --- BOUCLE PHYSIQUE (Avec Snap d'Illusion sur les arêtes) ---
+        // --- BOUCLE PHYSIQUE (Avec Pont Pré-calculé en Screen-Space) ---
         if (!enPause && !niveauComplete) {
             positionBalle.x += vitesseX * delta;
 
             boolean surUnBloc = false;
+            Vector3 prochainBlocCible = null;
 
-            // 1. Test Physique : La balle est-elle physiquement sur un bloc ?
+            // 1. Détection du sol physique normal
             for (Vector3 bloc : niveauActuel) {
-                // On vérifie les limites X et Z du bloc actuel
                 if (Math.abs(positionBalle.x - bloc.x) <= 1.0f && Math.abs(positionBalle.z - bloc.z) <= 1.0f) {
                     if (Math.abs(positionBalle.y - (bloc.y + 1.5f)) < 0.5f) {
                         surUnBloc = true;
+                        blocCourant = bloc; // On mémorise sur quel bloc on est !
                         positionBalle.y = bloc.y + 1.5f;
-                        positionBalle.z = bloc.z; // L'aimant pour garder la balle bien droite
+                        positionBalle.z = bloc.z;
                         vitesseY = 0f;
                         break;
                     }
                 }
             }
 
-            // 2. Test d'Illusion (Se déclenche uniquement à la microseconde où elle quitte le bord)
-            if (!surUnBloc && vitesseY == 0) {
-                // On projette la balle en plein vol sur l'écran
-                Vector3 projBalle = camera.project(new Vector3(positionBalle));
+            // 2. Le Test d'Illusion (Géométrie pure, indépendant du framerate)
+            // Si la balle tombe, MAIS qu'on sait de quel bloc elle vient de chuter
+            if (!surUnBloc && vitesseY == 0 && blocCourant != null) {
 
+                // On calcule les pixels exacts de l'arête de SORTIE du bloc actuel
+                Vector3 areteSortie = new Vector3(blocCourant.x + 1.0f, blocCourant.y + 1.5f, blocCourant.z);
+                Vector3 projSortie = camera.project(new Vector3(areteSortie));
+
+                // On scanne tous les autres blocs pour voir si une arête d'ENTRÉE correspond
                 for (Vector3 bloc : niveauActuel) {
-                    // C'est ICI la magie : on cible l'arête GAUCHE du bloc cible
-                    Vector3 bordGauche = new Vector3(bloc.x - 1.0f, bloc.y + 1.5f, bloc.z);
-                    Vector3 projBordGauche = camera.project(new Vector3(bordGauche));
+                    if (bloc == blocCourant) continue; // On ignore le bloc actuel
 
-                    // Distance euclidienne 2D sur l'écran : d = √((x2-x1)² + (y2-y1)²)
+                    Vector3 areteEntree = new Vector3(bloc.x - 1.0f, bloc.y + 1.5f, bloc.z);
+                    Vector3 projEntree = camera.project(new Vector3(areteEntree));
+
+                    // Distance Euclidienne 2D sur l'écran
                     float distPixels = (float) Math.sqrt(
-                        Math.pow(projBalle.x - projBordGauche.x, 2) +
-                        Math.pow(projBalle.y - projBordGauche.y, 2)
+                        Math.pow(projSortie.x - projEntree.x, 2) +
+                        Math.pow(projSortie.y - projEntree.y, 2)
                     );
 
                     if (distPixels <= MARGE_TOLERANCE) {
-                        // L'alignement est validé : on téléporte la balle sur l'arête cible
-                        positionBalle.set(bordGauche);
-
-                        // On la pousse très légèrement de 5 cm pour valider
-                        // le Test Physique à l'itération suivante et éviter de boucler
-                        positionBalle.x += 0.05f;
-                        surUnBloc = true;
+                        prochainBlocCible = bloc; // Le pont est validé !
                         break;
                     }
                 }
+
+                // Si un pont existe, on rattrape la balle avant qu'elle ne tombe
+                if (prochainBlocCible != null) {
+                    // On la place juste après l'arête d'entrée du nouveau bloc
+                    positionBalle.x = prochainBlocCible.x - 0.95f;
+                    positionBalle.y = prochainBlocCible.y + 1.5f;
+                    positionBalle.z = prochainBlocCible.z;
+
+                    surUnBloc = true;
+                    blocCourant = prochainBlocCible; // Le nouveau bloc devient le bloc courant
+                }
             }
 
-            // 3. Gravité et Défaite
+            // 3. Gravité et Défaite (Si aucun pont visuel n'a été trouvé)
             if (!surUnBloc) {
                 vitesseY -= 9.81f * delta;
                 positionBalle.y += vitesseY * delta;
+                blocCourant = null; // En chute libre, il n'y a plus de sol
 
-                // Reset automatique si elle tombe trop bas
                 if (positionBalle.y < -15f) {
                     positionBalle.set(0, 1.5f, 0);
                     vitesseY = 0f;
