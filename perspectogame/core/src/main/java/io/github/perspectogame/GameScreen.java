@@ -60,7 +60,7 @@ public class GameScreen extends ScreenAdapter {
     private static final float GRAVITE = 9.81f;
     private static final float FIXED_STEP = 1f / 120f;
     private static final float MAX_FRAME_TIME = 0.25f;
-    private static final float SNAP_TOLERANCE_PIXELS = 8f;
+    private static final float SNAP_TOLERANCE_PIXELS = 12f;
     private static final float MIN_DEPTH_GAP = 0.05f;
     private static final float BORD_EPSILON = 0.01f;
     private static final float Y_DEFAITE = -15f;
@@ -331,69 +331,108 @@ public class GameScreen extends ScreenAdapter {
         Vector3 axeDroite = new Vector3(camera.direction).crs(camera.up).nor();
         Vector3 axeHaut = new Vector3(camera.up).nor();
         Vector3 axeVue = new Vector3(camera.direction).nor();
-        float determinantProjection = axeDroite.x * axeHaut.z - axeDroite.z * axeHaut.x;
-        if (Math.abs(determinantProjection) < 0.0001f) {
-            return null;
-        }
-
-        float inverseDeterminant = 1f / determinantProjection;
-        float segmentDirX = axeDroite.z;
-        float segmentDirY = axeHaut.z;
+        float toleranceAlignement = calculerToleranceAlignement();
+        float toleranceCarree = toleranceAlignement * toleranceAlignement;
         float zLocalTrajectoire = borner(positionBalle.z - blocSource.z, -DEMI_BLOC, DEMI_BLOC);
-        Vector3 sortieCentre = new Vector3(blocSource.x + DEMI_BLOC, blocSource.y + HAUTEUR_BALLE, blocSource.z);
-        Vector3 sortieCentreRelative = new Vector3(sortieCentre).sub(camera.position);
-        float sortieCentreProjX = sortieCentreRelative.dot(axeDroite);
-        float sortieCentreProjY = sortieCentreRelative.dot(axeHaut);
+        Vector3 pointSortie = new Vector3(blocSource.x + DEMI_BLOC, blocSource.y + HAUTEUR_BALLE, blocSource.z + zLocalTrajectoire);
+        Vector3 projectionSortie = projeterPointCamera(pointSortie, axeDroite, axeHaut, axeVue);
         PontVisuel meilleurPont = null;
 
         for (Vector3 bloc : niveauActuel) {
-            if (bloc == blocSource || bloc.x <= blocSource.x) {
+            if (bloc == blocSource) {
                 continue;
             }
 
-            Vector3 centreSurface = new Vector3(bloc.x, bloc.y + HAUTEUR_BALLE, bloc.z);
-            Vector3 centreSurfaceRelative = new Vector3(centreSurface).sub(camera.position);
-            float centreSurfaceProjX = centreSurfaceRelative.dot(axeDroite);
-            float centreSurfaceProjY = centreSurfaceRelative.dot(axeHaut);
-
-            float sortieVersCentreX = sortieCentreProjX - centreSurfaceProjX;
-            float sortieVersCentreY = sortieCentreProjY - centreSurfaceProjY;
-            float dxBase = inverseDeterminant * (axeHaut.z * sortieVersCentreX - axeDroite.z * sortieVersCentreY);
-            float dzBase = inverseDeterminant * (-axeHaut.x * sortieVersCentreX + axeDroite.x * sortieVersCentreY);
-            float dxDir = inverseDeterminant * (axeHaut.z * segmentDirX - axeDroite.z * segmentDirY);
-            float dzDir = inverseDeterminant * (-axeHaut.x * segmentDirX + axeDroite.x * segmentDirY);
-
-            float[] intervalle = {-DEMI_BLOC, DEMI_BLOC};
-            if (!restreindreIntervalle(intervalle, dxBase, dxDir, -DEMI_BLOC, DEMI_BLOC)) {
+            PontVisuel pont = chercherPontProjete(bloc, pointSortie, projectionSortie, axeDroite, axeHaut, axeVue, toleranceCarree);
+            if (pont == null || pont.pointEntree.x < pointSortie.x - BORD_EPSILON) {
                 continue;
             }
-            if (!restreindreIntervalle(intervalle, dzBase, dzDir, -DEMI_BLOC, DEMI_BLOC)) {
-                continue;
-            }
-
-            if (zLocalTrajectoire < intervalle[0] || zLocalTrajectoire > intervalle[1]) {
-                continue;
-            }
-
-            float zLocalSortie = zLocalTrajectoire;
-            float dxCible = dxBase + dxDir * zLocalSortie;
-            float dzCible = dzBase + dzDir * zLocalSortie;
-
-            Vector3 pointSortie = new Vector3(blocSource.x + DEMI_BLOC, blocSource.y + HAUTEUR_BALLE, blocSource.z + zLocalSortie);
-            Vector3 pointEntree = new Vector3(bloc.x + dxCible, bloc.y + HAUTEUR_BALLE, bloc.z + dzCible);
-
-            float deltaProfondeur = new Vector3(pointEntree).sub(pointSortie).dot(axeVue);
-            float profondeurAbsolue = Math.abs(deltaProfondeur);
-            float distanceDepuisCentre = Math.abs(zLocalSortie);
 
             if (meilleurPont == null
-                || distanceDepuisCentre < meilleurPont.ecartCarre
-                || (Math.abs(distanceDepuisCentre - meilleurPont.ecartCarre) < 0.0001f && profondeurAbsolue < meilleurPont.profondeur)) {
-                meilleurPont = new PontVisuel(bloc, pointSortie, pointEntree, distanceDepuisCentre, profondeurAbsolue);
+                || pont.ecartCarre < meilleurPont.ecartCarre
+                || (Math.abs(pont.ecartCarre - meilleurPont.ecartCarre) < 0.0001f && pont.profondeur < meilleurPont.profondeur)) {
+                meilleurPont = pont;
             }
         }
 
         return meilleurPont;
+    }
+
+    private PontVisuel chercherPontProjete(
+        Vector3 blocCible,
+        Vector3 pointSortie,
+        Vector3 projectionSortie,
+        Vector3 axeDroite,
+        Vector3 axeHaut,
+        Vector3 axeVue,
+        float toleranceCarree
+    ) {
+        float centreLocalX = 0f;
+        float centreLocalZ = 0f;
+        float rayonRecherche = DEMI_BLOC;
+        float meilleureDistanceCarree = Float.MAX_VALUE;
+        float meilleureProfondeur = Float.MAX_VALUE;
+        Vector3 meilleurPoint = null;
+        Vector3 pointTeste = new Vector3();
+        Vector3 projectionTestee = new Vector3();
+        Vector3 ecart = new Vector3();
+
+        for (int passe = 0; passe < 4; passe++) {
+            float meilleurLocalX = centreLocalX;
+            float meilleurLocalZ = centreLocalZ;
+
+            for (int ix = 0; ix < 5; ix++) {
+                float facteurX = ix / 4f * 2f - 1f;
+                float localX = borner(centreLocalX + facteurX * rayonRecherche, -DEMI_BLOC, DEMI_BLOC);
+
+                for (int iz = 0; iz < 5; iz++) {
+                    float facteurZ = iz / 4f * 2f - 1f;
+                    float localZ = borner(centreLocalZ + facteurZ * rayonRecherche, -DEMI_BLOC, DEMI_BLOC);
+
+                    pointTeste.set(blocCible.x + localX, blocCible.y + HAUTEUR_BALLE, blocCible.z + localZ);
+                    projeterPointCamera(pointTeste, axeDroite, axeHaut, axeVue, projectionTestee);
+
+                    float deltaX = projectionTestee.x - projectionSortie.x;
+                    float deltaY = projectionTestee.y - projectionSortie.y;
+                    float distanceCarree = deltaX * deltaX + deltaY * deltaY;
+                    float profondeur = Math.abs(ecart.set(pointTeste).sub(pointSortie).dot(axeVue));
+
+                    if (distanceCarree < meilleureDistanceCarree
+                        || (Math.abs(distanceCarree - meilleureDistanceCarree) < 0.0001f && profondeur < meilleureProfondeur)) {
+                        meilleureDistanceCarree = distanceCarree;
+                        meilleureProfondeur = profondeur;
+                        meilleurLocalX = localX;
+                        meilleurLocalZ = localZ;
+                        if (meilleurPoint == null) {
+                            meilleurPoint = new Vector3();
+                        }
+                        meilleurPoint.set(pointTeste);
+                    }
+                }
+            }
+
+            centreLocalX = meilleurLocalX;
+            centreLocalZ = meilleurLocalZ;
+            rayonRecherche *= 0.35f;
+        }
+
+        if (meilleurPoint == null || meilleureDistanceCarree > toleranceCarree) {
+            return null;
+        }
+
+        return new PontVisuel(blocCible, pointSortie, meilleurPoint, meilleureDistanceCarree, meilleureProfondeur);
+    }
+
+    private Vector3 projeterPointCamera(Vector3 point, Vector3 axeDroite, Vector3 axeHaut, Vector3 axeVue) {
+        return projeterPointCamera(point, axeDroite, axeHaut, axeVue, new Vector3());
+    }
+
+    private Vector3 projeterPointCamera(Vector3 point, Vector3 axeDroite, Vector3 axeHaut, Vector3 axeVue, Vector3 resultat) {
+        resultat.set(point).sub(camera.position);
+        float projectionX = resultat.dot(axeDroite);
+        float projectionY = resultat.dot(axeHaut);
+        float projectionZ = resultat.dot(axeVue);
+        return resultat.set(projectionX, projectionY, projectionZ);
     }
 
     private void mettreAJourPontActif() {
@@ -478,20 +517,6 @@ public class GameScreen extends ScreenAdapter {
 
     private float borner(float valeur, float min, float max) {
         return Math.max(min, Math.min(max, valeur));
-    }
-
-    private boolean restreindreIntervalle(float[] intervalle, float base, float pente, float min, float max) {
-        if (Math.abs(pente) < 0.0001f) {
-            return base >= min && base <= max;
-        }
-
-        float t1 = (min - base) / pente;
-        float t2 = (max - base) / pente;
-        float borneMin = Math.min(t1, t2);
-        float borneMax = Math.max(t1, t2);
-        intervalle[0] = Math.max(intervalle[0], borneMin);
-        intervalle[1] = Math.min(intervalle[1], borneMax);
-        return intervalle[0] <= intervalle[1];
     }
 
     @Override
