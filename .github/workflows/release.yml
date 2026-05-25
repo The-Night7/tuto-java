@@ -1,0 +1,67 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Make Gradle executable
+        run: chmod +x gradlew
+        working-directory: perspectogame
+
+      - name: Build desktop jar
+        run: ./gradlew core:compileJava lwjgl3:jar
+        working-directory: perspectogame
+
+      - name: Prepare release notes
+        run: |
+          NOTES_FILE=".github/release-notes/${GITHUB_REF_NAME}.md"
+          if [ ! -f "$NOTES_FILE" ]; then
+            NOTES_FILE="$RUNNER_TEMP/release-notes.md"
+            {
+              echo "# ${GITHUB_REF_NAME}"
+              echo
+              echo "Voir CHANGELOG.md pour le détail de cette version."
+            } > "$NOTES_FILE"
+          fi
+          echo "RELEASE_NOTES_FILE=$NOTES_FILE" >> "$GITHUB_ENV"
+
+      - name: Collect assets
+        run: |
+          mkdir -p release-assets
+          cp perspectogame/lwjgl3/build/libs/*.jar release-assets/
+          cp README.md release-assets/README.md
+          cp CHANGELOG.md release-assets/CHANGELOG.md
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: perspectogame-release-assets
+          path: release-assets/*
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "PerspectoGame: Point de Fuite (${{ github.ref_name }})"
+          body_path: ${{ env.RELEASE_NOTES_FILE }}
+          files: |
+            release-assets/*

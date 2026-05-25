@@ -1,33 +1,32 @@
-# perspectogame
+# PerspectoGame: Point de Fuite
 
-A [libGDX](https://libgdx.com/) project generated with [gdx-liftoff](https://github.com/libgdx/gdx-liftoff).
+`perspectogame` est un jeu de puzzle 3D en Java avec libGDX. Le coeur du jeu repose sur des connexions impossibles entre plateformes : quand deux surfaces se superposent correctement dans la vue, la balle peut poursuivre sa route comme si un pont existait réellement.
 
-This project was generated with a template including simple application launchers and an `ApplicationAdapter` extension that draws libGDX logo.
+## Modules
 
-## Platforms
+- `core` : logique du jeu, rendu, niveaux, physique et détection de perspective
+- `lwjgl3` : lanceur desktop LWJGL3
+- `assets` : tutoriel, niveaux et ressources du jeu
 
-- `core`: Main module with the application logic shared by all platforms.
-- `lwjgl3`: Primary desktop platform using LWJGL3; was called 'desktop' in older docs.
+## Contrôles
 
-## Gradle
+- `Souris gauche + glisser` : orienter la caméra
+- `Flèches` : déplacer la caméra pour inspecter tout le niveau
+- `Espace` : démarrer / mettre en pause
+- `Échap` : revenir au menu
 
-This project uses [Gradle](https://gradle.org/) to manage dependencies.
-The Gradle wrapper was included, so you can run Gradle tasks using `gradlew.bat` or `./gradlew` commands.
-Useful Gradle tasks and flags:
+## Commandes utiles
 
-- `--continue`: when using this flag, errors will not stop the tasks from running.
-- `--daemon`: thanks to this flag, Gradle daemon will be used to run chosen tasks.
-- `--offline`: when using this flag, cached dependency archives will be used.
-- `--refresh-dependencies`: this flag forces validation of all dependencies. Useful for snapshot versions.
-- `build`: builds sources and archives of every project.
-- `cleanEclipse`: removes Eclipse project data.
-- `cleanIdea`: removes IntelliJ project data.
-- `clean`: removes `build` folders, which store compiled classes and built archives.
-- `eclipse`: generates Eclipse project data.
-- `idea`: generates IntelliJ project data.
-- `lwjgl3:jar`: builds application's runnable jar, which can be found at `lwjgl3/build/libs`.
-- `lwjgl3:run`: starts the application.
-- `test`: runs unit tests (if any).
+```bash
+./gradlew core:compileJava
+./gradlew lwjgl3:run
+./gradlew lwjgl3:jar
+```
 
-Note that most tasks that are not specific to a single project can be run with `name:` prefix, where the `name` should be replaced with the ID of a specific project.
-For example, `core:clean` removes `build` folder only from the `core` project.
+## Release GitHub
+
+La release courante est `v1.0.0`, nommée `PerspectoGame: Point de Fuite`.
+
+- `CHANGELOG` : [`../CHANGELOG.md`](../CHANGELOG.md)
+- notes de release : [`../.github/release-notes/v1.0.0.md`](../.github/release-notes/v1.0.0.md)
+- workflow de publication : [`../.github/workflows/release.yml`](../.github/workflows/release.yml)

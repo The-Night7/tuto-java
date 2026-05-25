@@ -48,8 +48,10 @@ public class MenuScreen extends ScreenAdapter {
 
         batch.begin();
         font.setColor(Color.WHITE);
-        font.draw(batch, "=== PERSPECTO GAME ===", largeur / 2f - 170f, y);
+        font.draw(batch, Main.GAME_TITLE, largeur / 2f - 210f, y);
         y -= 45f;
+        font.draw(batch, Main.RELEASE_VERSION, largeur / 2f - 40f, y);
+        y -= 35f;
         font.draw(batch, "[HAUT/BAS] selectionner  [ENTREE] lancer", 70f, y);
         y -= 28f;
         font.draw(batch, "[T] tutoriel  [1..9] niveaux 1 a 9  [0] niveau 10", 70f, y);
