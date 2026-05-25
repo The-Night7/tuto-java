@@ -65,6 +65,7 @@ public class GameScreen extends ScreenAdapter {
     private static final float BORD_EPSILON = 0.01f;
     private static final float Y_DEFAITE = -15f;
     private static final float DISTANCE_VICTOIRE = 1.2f;
+    private static final float VITESSE_CAMERA = 10f;
 
     private final Main game;
 
@@ -97,6 +98,7 @@ public class GameScreen extends ScreenAdapter {
     private float accumulateurPhysique = 0f;
     private boolean enPause = true;
     private boolean niveauComplete = false;
+    private final Vector3 cameraPivot = new Vector3();
 
     public GameScreen(Main game, String nomFichier) {
         this.game = game;
@@ -108,10 +110,10 @@ public class GameScreen extends ScreenAdapter {
 
         camera = new OrthographicCamera(LARGEUR_CAMERA, LARGEUR_CAMERA * (Gdx.graphics.getHeight() / (float) Gdx.graphics.getWidth()));
         camera.position.set(10f, 10f, 10f);
-        camera.lookAt(0, 0, 0);
+        cameraPivot.setZero();
         camera.near = 1f;
         camera.far = 100f;
-        camera.update();
+        orienterCameraVersPivot();
 
         batch = new SpriteBatch();
         font = new BitmapFont();
@@ -412,6 +414,53 @@ public class GameScreen extends ScreenAdapter {
         return SNAP_TOLERANCE_PIXELS * Math.min(mondeParPixelX, mondeParPixelY);
     }
 
+    private void deplacerCamera(float delta) {
+        float distance = VITESSE_CAMERA * delta;
+        Vector3 axeDroite = new Vector3(camera.direction).crs(camera.up);
+        axeDroite.y = 0f;
+        if (axeDroite.isZero(0.0001f)) {
+            axeDroite.set(1f, 0f, 0f);
+        } else {
+            axeDroite.nor();
+        }
+
+        Vector3 axeAvant = new Vector3(camera.direction);
+        axeAvant.y = 0f;
+        if (axeAvant.isZero(0.0001f)) {
+            axeAvant.set(0f, 0f, -1f);
+        } else {
+            axeAvant.nor();
+        }
+
+        Vector3 decalage = new Vector3();
+        if (Gdx.input.isKeyPressed(Input.Keys.LEFT)) {
+            decalage.mulAdd(axeDroite, -distance);
+        }
+        if (Gdx.input.isKeyPressed(Input.Keys.RIGHT)) {
+            decalage.mulAdd(axeDroite, distance);
+        }
+        if (Gdx.input.isKeyPressed(Input.Keys.UP)) {
+            decalage.mulAdd(axeAvant, distance);
+        }
+        if (Gdx.input.isKeyPressed(Input.Keys.DOWN)) {
+            decalage.mulAdd(axeAvant, -distance);
+        }
+
+        if (decalage.isZero(0.0001f)) {
+            return;
+        }
+
+        camera.position.add(decalage);
+        cameraPivot.add(decalage);
+        orienterCameraVersPivot();
+    }
+
+    private void orienterCameraVersPivot() {
+        camera.up.set(Vector3.Y);
+        camera.lookAt(cameraPivot);
+        camera.update();
+    }
+
     private void verifierVictoire() {
         if (positionQuille != null && positionBalle.dst(positionQuille) <= DISTANCE_VICTOIRE) {
             niveauComplete = true;
@@ -456,15 +505,17 @@ public class GameScreen extends ScreenAdapter {
             enPause = !enPause;
         }
 
+        deplacerCamera(delta);
+
         if (Gdx.input.isButtonPressed(Input.Buttons.LEFT)) {
             float deltaX = Gdx.input.getDeltaX();
             float deltaY = Gdx.input.getDeltaY();
             float sensibilite = 0.5f;
 
-            camera.rotateAround(Vector3.Zero, Vector3.Y, deltaX * sensibilite);
+            camera.rotateAround(cameraPivot, Vector3.Y, deltaX * sensibilite);
             Vector3 axeDroit = new Vector3(camera.direction).crs(camera.up).nor();
-            camera.rotateAround(Vector3.Zero, axeDroit, deltaY * sensibilite);
-            camera.update();
+            camera.rotateAround(cameraPivot, axeDroit, deltaY * sensibilite);
+            orienterCameraVersPivot();
         }
 
         mettreAJourPontActif();
@@ -497,7 +548,7 @@ public class GameScreen extends ScreenAdapter {
             font.draw(batch, "VICTOIRE ! Niveau Complete !", Gdx.graphics.getWidth() / 2f - 120, Gdx.graphics.getHeight() / 2f + 20);
             font.draw(batch, "Appuyez sur [ESC] pour retourner au menu.", Gdx.graphics.getWidth() / 2f - 160, Gdx.graphics.getHeight() / 2f - 20);
         } else {
-            font.draw(batch, "Controles : Glisser la souris pour orienter la perspective.", 20, Gdx.graphics.getHeight() - 20);
+            font.draw(batch, "Controles : souris pour orienter, fleches pour deplacer la camera.", 20, Gdx.graphics.getHeight() - 20);
             font.draw(batch, "Statut : " + (enPause ? "IMMOBILE (Ajuste ton angle)" : "EN MOUVEMENT"), 20, Gdx.graphics.getHeight() - 50);
             font.draw(batch, "Appuie sur [ESPACE] pour " + (enPause ? "LANCER LA BALLE" : "METTRE EN PAUSE"), 20, Gdx.graphics.getHeight() - 80);
         }
@@ -508,7 +559,7 @@ public class GameScreen extends ScreenAdapter {
     public void resize(int width, int height) {
         camera.viewportWidth = LARGEUR_CAMERA;
         camera.viewportHeight = LARGEUR_CAMERA * (height / (float) width);
-        camera.update();
+        orienterCameraVersPivot();
     }
 
     @Override
