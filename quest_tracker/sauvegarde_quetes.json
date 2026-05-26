@@ -30,7 +30,7 @@
     "xp": 294,
     "col": 1000,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 4,
@@ -41,7 +41,7 @@
     "xp": 147,
     "col": 250,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 5,
@@ -52,7 +52,7 @@
     "xp": 291,
     "col": 600,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 6,
@@ -63,7 +63,7 @@
     "xp": 146,
     "col": 200,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 7,
@@ -74,7 +74,7 @@
     "xp": 145,
     "col": 250,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 8,
@@ -107,7 +107,7 @@
     "xp": 147,
     "col": 300,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 11,
@@ -118,7 +118,7 @@
     "xp": 105,
     "col": 0,
     "autres": "24 Minerais de Fer",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 12,
@@ -151,7 +151,7 @@
     "xp": 439,
     "col": 1000,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 15,
@@ -184,7 +184,7 @@
     "xp": 146,
     "col": 400,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 18,
@@ -195,7 +195,7 @@
     "xp": 146,
     "col": 150,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 19,
@@ -206,7 +206,7 @@
     "xp": 145,
     "col": 120,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 20,
@@ -217,7 +217,7 @@
     "xp": 146,
     "col": 600,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 21,
@@ -228,7 +228,7 @@
     "xp": 146,
     "col": 100,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 22,
@@ -239,7 +239,7 @@
     "xp": 147,
     "col": 150,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 23,
@@ -250,7 +250,7 @@
     "xp": 145,
     "col": 400,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 24,
@@ -261,7 +261,7 @@
     "xp": 434,
     "col": 750,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 25,
@@ -272,7 +272,7 @@
     "xp": 146,
     "col": 600,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 26,
@@ -283,7 +283,7 @@
     "xp": 146,
     "col": 600,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 27,
@@ -294,7 +294,7 @@
     "xp": 145,
     "col": 500,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 28,
@@ -316,7 +316,7 @@
     "xp": 436,
     "col": 1500,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 30,
@@ -327,7 +327,7 @@
     "xp": 440,
     "col": 750,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 31,
@@ -338,7 +338,7 @@
     "xp": 145,
     "col": 250,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 32,
@@ -349,7 +349,7 @@
     "xp": 147,
     "col": 500,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 33,
@@ -360,7 +360,7 @@
     "xp": 146,
     "col": 250,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 34,
@@ -393,7 +393,7 @@
     "xp": 291,
     "col": 300,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 37,
@@ -404,7 +404,7 @@
     "xp": 146,
     "col": 500,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 38,
@@ -415,7 +415,7 @@
     "xp": 293,
     "col": 500,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 39,
@@ -437,7 +437,7 @@
     "xp": 293,
     "col": 1000,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 41,
@@ -448,7 +448,7 @@
     "xp": 291,
     "col": 200,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 42,
@@ -459,7 +459,7 @@
     "xp": 292,
     "col": 150,
     "autres": "",
-    "terminee": false
+    "terminee": true
   },
   {
     "id": 43,
@@ -470,6 +470,6 @@
     "xp": 0,
     "col": 0,
     "autres": "1 Pinceau Magique",
-    "terminee": false
+    "terminee": true
   }
 ]
