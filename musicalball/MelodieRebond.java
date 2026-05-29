@@ -2,26 +2,33 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.geom.AffineTransform;
 import java.util.ArrayList;
 import java.util.List;
 import javax.sound.midi.*;
 
 /**
- * Un logiciel génératif où des balles avancent rectilignement sur des pistes.
- * Elles percutent des notes qui jouent de la musique et s'illuminent.
+ * Un séquenceur génératif avec un effet de PANORAMA (scrolling infini).
+ * Le monde défile, et les balles sautent sur place pour atterrir sur les notes.
  */
 public class MelodieRebond extends JPanel implements ActionListener {
 
-    private final int LARGEUR = 1000;
+    // 960 est idéal car très bien divisible par notre grille de 16 temps (60px)
+    private final int LARGEUR = 960; 
     private final int HAUTEUR = 600;
     private final int DELAI_TIMER = 16; // Environ 60 FPS
     
-    // Vitesse à laquelle les balles avancent (pixels par frame)
-    private final double VITESSE_AVANCE = 2.5; 
+    private final double VITESSE_AVANCE = 4.0; 
+    private final double GRAVITE = 0.8;
+    private final int LARGEUR_ETAPE = 60; // 960 / 16 étapes musicales
 
     private List<Balle> balles;
     private List<Piste> pistes;
     private Timer timer;
+    
+    // Position de la "caméra" pour l'effet panorama.
+    // En la décalant, on force les balles à s'afficher au premier tiers (LARGEUR / 3).
+    private double cameraX = LARGEUR - (LARGEUR / 3.0) + (LARGEUR_ETAPE / 2.0);
 
     // Gestion du son
     private Synthesizer synth;
@@ -43,10 +50,9 @@ public class MelodieRebond extends JPanel implements ActionListener {
         try {
             synth = MidiSystem.getSynthesizer();
             synth.open();
-            // Utiliser le canal 0 (souvent le piano par défaut)
             canalMidi = synth.getChannels()[0]; 
-            // Optionnel : Changer d'instrument (ex: 12 = Vibraphone)
-            // canalMidi.programChange(12);
+            // Instrument 12 = Marimba/Vibraphone (très agréable pour des rebonds)
+            canalMidi.programChange(12); 
         } catch (MidiUnavailableException e) {
             System.err.println("Erreur: Le synthétiseur MIDI n'est pas disponible.");
             e.printStackTrace();
@@ -57,30 +63,43 @@ public class MelodieRebond extends JPanel implements ActionListener {
         balles = new ArrayList<>();
         pistes = new ArrayList<>();
 
-        // Gamme pentatonique pour que ça sonne toujours harmonieux
-        int[] gamme = {60, 62, 64, 67, 69, 72, 74, 76, 79};
-        Color[] couleurs = {Color.RED, Color.ORANGE, Color.YELLOW, Color.GREEN, Color.CYAN, Color.BLUE, Color.MAGENTA};
+        // Gamme pentatonique (7 pistes)
+        int[] gamme = {60, 62, 64, 67, 69, 72, 74};
+        Color[] couleurs = {
+            Color.RED, Color.ORANGE, Color.YELLOW, Color.GREEN, 
+            Color.CYAN, new Color(100, 150, 255), Color.MAGENTA
+        };
 
         int nombreDePistes = 7;
         int hauteurPiste = HAUTEUR / nombreDePistes;
 
-        // Création des pistes et des balles
         for (int i = 0; i < nombreDePistes; i++) {
             Color couleurPiste = couleurs[i % couleurs.length];
             int yPiste = i * hauteurPiste + hauteurPiste / 2;
             
-            // Créer la piste avec un instrument (ici, simple note MIDI)
             Piste piste = new Piste(yPiste, hauteurPiste, gamme[i], couleurPiste);
             
-            // Ajouter des "notes" (plateformes) sur cette piste à des positions X aléatoires
-            for (int j = 0; j < 6; j++) {
-                int xNote = 150 + (int)(Math.random() * (LARGEUR - 200));
-                piste.ajouterNote(xNote);
+            // On crée un rythme aléatoire
+            int stepCourant = 0;
+            while (stepCourant < 16) {
+                piste.ajouterNote(stepCourant * LARGEUR_ETAPE + LARGEUR_ETAPE / 2);
+                
+                double r = Math.random();
+                int saut;
+                if (r < 0.4) saut = 2;       // 40% de chance d'un espace moyen
+                else if (r < 0.7) saut = 1;  // 30% de chance d'un espace court
+                else saut = 3;               // 30% de chance d'un grand saut
+                
+                stepCourant += saut;
+            }
+            
+            if (piste.notes.size() < 2) {
+                piste.ajouterNote(8 * LARGEUR_ETAPE + LARGEUR_ETAPE / 2);
             }
             pistes.add(piste);
 
-            // Créer une balle pour cette piste, qui commence à gauche (x=0)
-            Balle balle = new Balle(0, yPiste, VITESSE_AVANCE, couleurPiste);
+            Balle balle = new Balle(couleurPiste);
+            balle.initialiser(piste);
             balles.add(balle);
         }
     }
@@ -89,98 +108,153 @@ public class MelodieRebond extends JPanel implements ActionListener {
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
         Graphics2D g2d = (Graphics2D) g;
-        // Anti-aliasing pour des bords lisses
         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        // Sauvegarde de la transformation initiale
+        AffineTransform oldTransform = g2d.getTransform();
+
+        // Pour créer l'illusion d'un panorama infini, on dessine le monde deux fois côte à côte
+        // 1er rendu (décalé vers la gauche par la caméra)
+        g2d.translate(-cameraX, 0);
+        dessinerMonde(g2d);
+        
+        // 2ème rendu (exactement à la suite du premier pour combler le vide à droite)
+        g2d.translate(LARGEUR, 0);
+        dessinerMonde(g2d);
+
+        // Restauration de la caméra fixe pour dessiner les balles
+        g2d.setTransform(oldTransform);
+
+        // Les balles sont dessinées par-dessus, fixes horizontalement sur l'écran !
+        for (Balle b : balles) {
+            b.dessiner(g2d, cameraX, LARGEUR);
+        }
+    }
+
+    /**
+     * Dessine le décor, la grille et les notes (tout ce qui défile).
+     */
+    private void dessinerMonde(Graphics2D g) {
+        // Grille de fond pour accentuer fortement l'effet de vitesse panoramique
+        g.setColor(new Color(25, 25, 35));
+        for (int i = 0; i <= 16; i++) {
+            int xLigne = i * LARGEUR_ETAPE;
+            g.drawLine(xLigne, 0, xLigne, HAUTEUR);
+        }
 
         // Dessiner les pistes et leurs notes
         for (Piste p : pistes) {
-            p.dessiner(g2d);
-        }
-
-        // Dessiner les balles
-        for (Balle b : balles) {
-            b.dessiner(g2d);
+            p.dessiner(g);
         }
     }
 
     @Override
     public void actionPerformed(ActionEvent e) {
         mettreAJourPhysique();
-        repaint(); // Redessine l'écran
+        repaint();
     }
 
     private void mettreAJourPhysique() {
-        // Mettre à jour l'illumination des notes
+        // 1. Mise à jour de la caméra globale pour le défilement
+        cameraX = (cameraX + VITESSE_AVANCE) % LARGEUR;
+
+        // 2. Mise à jour des illuminations de notes
         for (Piste p : pistes) {
             p.mettreAJourNotes();
         }
 
-        // Faire avancer chaque balle
+        // 3. Physique des balles
         for (int i = 0; i < balles.size(); i++) {
             Balle b = balles.get(i);
             Piste p = pistes.get(i);
 
-            // Avance rectiligne
+            // Mouvement horizontal (virtuel dans le monde)
             b.x += b.dx;
-
-            // Si la balle atteint le bord droit, elle recommence à gauche
             if (b.x > LARGEUR) {
-                b.x = 0;
-                p.resetNotesPercutees(); // Permet de rejouer les notes
+                b.x -= LARGEUR; 
             }
 
-            // Vérifier les collisions avec les notes de la piste correspondante
-            for (Note n : p.notes) {
-                if (!n.percutee && // La note n'a pas encore été jouée ce tour-ci
-                    b.x + b.rayon >= n.x && 
-                    b.x - b.rayon <= n.x + n.largeur) {
-                    
-                    // Jouer la note MIDI (canal 0, note de la piste, vélocité 100)
-                    if (canalMidi != null) {
-                        canalMidi.noteOn(p.noteMidi, 100);
-                    }
-                    
-                    // Marquer la note comme percutée et l'illuminer
-                    n.percuter();
+            // Application de la gravité
+            b.dy += GRAVITE;
+            b.y += b.dy;
+
+            // Détection de l'atterrissage parfait calculé mathématiquement
+            if (b.y + b.rayon >= p.y && b.dy > 0) {
+                b.y = p.y - b.rayon;
+                
+                Note cible = p.notes.get(b.indexNoteActuelle);
+                cible.percuter(); 
+                
+                if (canalMidi != null) {
+                    canalMidi.noteOn(p.noteMidi, 100); 
                 }
+                
+                b.x = cible.x + cible.largeur / 2.0; 
+                b.sauterVersProchaineNote(p);
             }
         }
     }
 
     public static void main(String[] args) {
-        // Lancer l'interface graphique sur le thread approprié (EDT)
         SwingUtilities.invokeLater(() -> {
-            JFrame frame = new JFrame("Mélodie Avancée - Séquenceur Visuel");
+            JFrame frame = new JFrame("Mélodie Rebondissante - Panorama Infini");
             frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
             frame.setResizable(false);
             frame.add(new MelodieRebond());
             frame.pack();
-            frame.setLocationRelativeTo(null); // Centrer la fenêtre
+            frame.setLocationRelativeTo(null);
             frame.setVisible(true);
         });
     }
 
-    // --- Classes internes pour représenter les objets du séquenceur ---
+    // --- Classes internes ---
 
     class Balle {
         double x, y;
-        double dx; // Vitesse horizontale unique
+        double dx = VITESSE_AVANCE;
+        double dy;
         int rayon = 12;
         Color couleur;
+        int indexNoteActuelle = 0;
 
-        public Balle(double x, double y, double dx, Color couleur) {
-            this.x = x;
-            this.y = y;
-            this.dx = dx;
+        public Balle(Color couleur) {
             this.couleur = couleur;
         }
 
-        public void dessiner(Graphics2D g) {
+        public void initialiser(Piste p) {
+            Note premiereNote = p.notes.get(0);
+            this.x = premiereNote.x + premiereNote.largeur / 2.0;
+            this.y = p.y - this.rayon;
+            sauterVersProchaineNote(p); 
+        }
+
+        public void sauterVersProchaineNote(Piste piste) {
+            Note courante = piste.notes.get(indexNoteActuelle);
+            indexNoteActuelle = (indexNoteActuelle + 1) % piste.notes.size();
+            Note cible = piste.notes.get(indexNoteActuelle);
+            
+            double cibleX = cible.x + cible.largeur / 2.0;
+            double couranteX = courante.x + courante.largeur / 2.0;
+            
+            double dist_x = cibleX - couranteX;
+            if (dist_x <= 0) { 
+                dist_x += LARGEUR;
+            }
+            
+            double tempsDeVol = dist_x / dx; 
+            this.dy = -GRAVITE * (tempsDeVol + 1) / 2.0; 
+        }
+
+        public void dessiner(Graphics2D g, double camX, int largeurMonde) {
+            // La magie du panorama : on calcule la position de la balle PAR RAPPORT à la caméra.
+            // Comme la balle et la caméra avancent à la même vitesse, cette valeur reste fixe sur l'écran !
+            double renderX = this.x - camX;
+            renderX = ((renderX % largeurMonde) + largeurMonde) % largeurMonde;
+            
             g.setColor(couleur);
-            g.fillOval((int) (x - rayon), (int) (y - rayon), rayon * 2, rayon * 2);
-            // Contour blanc pour la visibilité
+            g.fillOval((int) (renderX - rayon), (int) (y - rayon), rayon * 2, rayon * 2);
             g.setColor(Color.WHITE);
-            g.drawOval((int) (x - rayon), (int) (y - rayon), rayon * 2, rayon * 2);
+            g.drawOval((int) (renderX - rayon), (int) (y - rayon), rayon * 2, rayon * 2);
         }
     }
 
@@ -197,14 +271,10 @@ public class MelodieRebond extends JPanel implements ActionListener {
             this.notes = new ArrayList<>();
         }
 
-        public void ajouterNote(int x) {
-            int largeurNote = 15;
-            // Centrer la note verticalement sur la piste
-            notes.add(new Note(x, y - hauteurPiste / 4, largeurNote, hauteurPiste / 2, couleurPiste));
-        }
-
-        public void resetNotesPercutees() {
-            for (Note n : notes) n.percutee = false;
+        public void ajouterNote(int xCentre) {
+            int largeurNote = 30;
+            int hauteurNote = 8;
+            notes.add(new Note(xCentre - largeurNote / 2, y, largeurNote, hauteurNote, couleurPiste));
         }
 
         public void mettreAJourNotes() {
@@ -212,11 +282,9 @@ public class MelodieRebond extends JPanel implements ActionListener {
         }
 
         public void dessiner(Graphics2D g) {
-            // Ligne horizontale de la piste
-            g.setColor(new Color(40, 40, 50));
+            g.setColor(new Color(30, 30, 40));
             g.drawLine(0, y, LARGEUR, y);
             
-            // Dessiner les notes
             for (Note n : notes) {
                 n.dessiner(g);
             }
@@ -226,7 +294,6 @@ public class MelodieRebond extends JPanel implements ActionListener {
     class Note {
         int x, y, largeur, hauteur;
         Color couleurBase;
-        boolean percutee = false;
         int niveauIllumination = 0;
 
         public Note(int x, int y, int largeur, int hauteur, Color couleurBase) {
@@ -238,29 +305,26 @@ public class MelodieRebond extends JPanel implements ActionListener {
         }
 
         public void percuter() {
-            percutee = true;
-            niveauIllumination = 255; // Brillance maximale
+            niveauIllumination = 255;
         }
 
         public void mettreAJour() {
             if (niveauIllumination > 0) {
-                niveauIllumination -= 15; // Diminution progressive
+                niveauIllumination -= 15;
                 if (niveauIllumination < 0) niveauIllumination = 0;
             }
         }
 
         public void dessiner(Graphics2D g) {
-            // Halo lumineux si percutée
             if (niveauIllumination > 0) {
                 g.setColor(new Color(255, 255, 255, niveauIllumination));
                 g.fillRoundRect(x - 5, y - 5, largeur + 10, hauteur + 10, 10, 10);
+                g.setColor(Color.WHITE);
+            } else {
+                g.setColor(couleurBase);
             }
             
-            // La note elle-même
-            g.setColor(percutee ? Color.WHITE : couleurBase);
             g.fillRoundRect(x, y, largeur, hauteur, 5, 5);
-            
-            // Contour
             g.setColor(Color.WHITE);
             g.drawRoundRect(x, y, largeur, hauteur, 5, 5);
         }
