@@ -2,13 +2,13 @@ package io.github.perspectogame;
 
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
+import com.badlogic.gdx.InputMultiplexer;
+import com.badlogic.gdx.Preferences;
 import com.badlogic.gdx.ScreenAdapter;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.VertexAttributes.Usage;
-import com.badlogic.gdx.graphics.g2d.BitmapFont;
-import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.g3d.Environment;
 import com.badlogic.gdx.graphics.g3d.Material;
 import com.badlogic.gdx.graphics.g3d.Model;
@@ -19,6 +19,18 @@ import com.badlogic.gdx.graphics.g3d.environment.DirectionalLight;
 import com.badlogic.gdx.graphics.g3d.utils.ModelBuilder;
 import com.badlogic.gdx.math.Vector3;
 import com.badlogic.gdx.files.FileHandle;
+import com.badlogic.gdx.math.Vector2;
+import com.badlogic.gdx.scenes.scene2d.Actor;
+import com.badlogic.gdx.scenes.scene2d.InputEvent;
+import com.badlogic.gdx.scenes.scene2d.Stage;
+import com.badlogic.gdx.scenes.scene2d.Touchable;
+import com.badlogic.gdx.scenes.scene2d.ui.Label;
+import com.badlogic.gdx.scenes.scene2d.ui.Skin;
+import com.badlogic.gdx.scenes.scene2d.ui.Table;
+import com.badlogic.gdx.scenes.scene2d.ui.TextButton;
+import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
+import com.badlogic.gdx.utils.Align;
+import com.badlogic.gdx.utils.viewport.ScreenViewport;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -68,6 +80,10 @@ public class GameScreen extends ScreenAdapter {
     private static final float VITESSE_CAMERA = 10f;
 
     private final Main game;
+    private final int niveauIndex;
+    private final String nomNiveau;
+    private final String fichierNiveau;
+    private final Preferences progression;
 
     private OrthographicCamera camera;
     private ModelBatch modelBatch;
@@ -75,8 +91,14 @@ public class GameScreen extends ScreenAdapter {
     private ModelInstance instance;
     private Environment environment;
 
-    private SpriteBatch batch;
-    private BitmapFont font;
+    private Stage uiStage;
+    private Skin skin;
+    private Label statutLabel;
+    private Label actionLabel;
+    private Label pontLabel;
+    private Label niveauLabel;
+    private TextButton pauseButton;
+    private Table victoireOverlay;
 
     private Model balleModel;
     private ModelInstance balleInstance;
@@ -98,10 +120,20 @@ public class GameScreen extends ScreenAdapter {
     private float accumulateurPhysique = 0f;
     private boolean enPause = true;
     private boolean niveauComplete = false;
+    private boolean victoireSauvegardee = false;
     private final Vector3 cameraPivot = new Vector3();
+    private final Vector2 pointeurStage = new Vector2();
 
     public GameScreen(Main game, String nomFichier) {
+        this(game, -1, "Niveau", nomFichier);
+    }
+
+    public GameScreen(Main game, int niveauIndex, String nomNiveau, String nomFichier) {
         this.game = game;
+        this.niveauIndex = niveauIndex;
+        this.nomNiveau = nomNiveau;
+        this.fichierNiveau = nomFichier;
+        this.progression = Gdx.app.getPreferences("perspectogame_progress");
 
         modelBatch = new ModelBatch();
         environment = new Environment();
@@ -114,10 +146,6 @@ public class GameScreen extends ScreenAdapter {
         camera.near = 1f;
         camera.far = 100f;
         orienterCameraVersPivot();
-
-        batch = new SpriteBatch();
-        font = new BitmapFont();
-        font.getData().setScale(1.5f);
 
         ModelBuilder modelBuilder = new ModelBuilder();
         model = modelBuilder.createBox(2f, 2f, 2f,
@@ -143,6 +171,135 @@ public class GameScreen extends ScreenAdapter {
 
         chargerNiveau(nomFichier);
         initialiserNiveau();
+        initialiserInterface();
+    }
+
+    @Override
+    public void show() {
+        Gdx.input.setInputProcessor(new InputMultiplexer(uiStage));
+    }
+
+    private void initialiserInterface() {
+        uiStage = new Stage(new ScreenViewport());
+        skin = UiFactory.createSkin();
+
+        Table racine = new Table();
+        racine.setFillParent(true);
+        racine.setTouchable(Touchable.childrenOnly);
+        racine.pad(12f);
+        uiStage.addActor(racine);
+
+        Table hud = new Table();
+        hud.setBackground(UiFactory.drawable(skin, "hud"));
+        hud.pad(12f);
+        hud.defaults().left().spaceBottom(4f);
+
+        niveauLabel = new Label(nomNiveau, skin, "accent");
+        statutLabel = new Label("", skin);
+        actionLabel = new Label("", skin, "small");
+        pontLabel = new Label("", skin, "small");
+        actionLabel.setWrap(true);
+        pontLabel.setWrap(true);
+        hud.add(niveauLabel).width(340f).row();
+        hud.add(statutLabel).width(340f).row();
+        hud.add(actionLabel).width(340f).row();
+        hud.add(pontLabel).width(340f).row();
+
+        Table commandes = new Table();
+        commandes.defaults().height(38f).minWidth(112f).spaceBottom(7f);
+        pauseButton = new TextButton("", skin, "accent");
+        pauseButton.addListener(new ClickListener() {
+            @Override
+            public void clicked(InputEvent event, float x, float y) {
+                basculerPause();
+            }
+        });
+        TextButton recommencer = new TextButton("Rejouer", skin, "ghost");
+        recommencer.addListener(new ClickListener() {
+            @Override
+            public void clicked(InputEvent event, float x, float y) {
+                reinitialiserBalle();
+            }
+        });
+        TextButton menu = new TextButton("Menu", skin, "ghost");
+        menu.addListener(new ClickListener() {
+            @Override
+            public void clicked(InputEvent event, float x, float y) {
+                retournerMenu();
+            }
+        });
+        commandes.add(pauseButton).growX().row();
+        commandes.add(recommencer).growX().row();
+        commandes.add(menu).growX().row();
+
+        racine.top();
+        racine.add(hud).width(364f).top().left();
+        racine.add().growX();
+        racine.add(commandes).width(132f).top().right();
+
+        victoireOverlay = creerOverlay(
+            "Victoire !",
+            "Progression sauvegardee.",
+            "Menu",
+            new Runnable() {
+                @Override
+                public void run() {
+                    retournerMenu();
+                }
+            }
+        );
+
+        mettreAJourInterface();
+    }
+
+    private Table creerOverlay(String titre, String message, String action, final Runnable actionPrincipale) {
+        Table overlay = new Table();
+        overlay.setFillParent(true);
+        overlay.setTouchable(Touchable.childrenOnly);
+        overlay.setVisible(false);
+
+        Table carte = new Table();
+        carte.setBackground(UiFactory.drawable(skin, "panel-light"));
+        carte.pad(20f);
+        carte.defaults().growX().spaceBottom(10f);
+
+        Label titreLabel = new Label(titre, skin, "title");
+        titreLabel.setAlignment(Align.center);
+        Label messageLabel = new Label(message, skin);
+        messageLabel.setAlignment(Align.center);
+        messageLabel.setWrap(true);
+
+        TextButton overlayActionButton = new TextButton(action, skin, "accent");
+        overlayActionButton.addListener(new ClickListener() {
+            @Override
+            public void clicked(InputEvent event, float x, float y) {
+                actionPrincipale.run();
+            }
+        });
+        TextButton recommencer = new TextButton("Rejouer", skin, "ghost");
+        recommencer.addListener(new ClickListener() {
+            @Override
+            public void clicked(InputEvent event, float x, float y) {
+                reinitialiserBalle();
+            }
+        });
+        TextButton menu = new TextButton("Menu", skin, "ghost");
+        menu.addListener(new ClickListener() {
+            @Override
+            public void clicked(InputEvent event, float x, float y) {
+                retournerMenu();
+            }
+        });
+
+        carte.add(titreLabel).row();
+        carte.add(messageLabel).width(300f).row();
+        carte.add(overlayActionButton).height(42f).row();
+        carte.add(recommencer).height(38f).row();
+        carte.add(menu).height(38f).row();
+
+        overlay.add(carte).width(350f).center();
+        uiStage.addActor(overlay);
+        return overlay;
     }
 
     private void chargerNiveau(String nomFichier) {
@@ -503,6 +660,7 @@ public class GameScreen extends ScreenAdapter {
     private void verifierVictoire() {
         if (positionQuille != null && positionBalle.dst(positionQuille) <= DISTANCE_VICTOIRE) {
             niveauComplete = true;
+            marquerNiveauTermine();
         }
     }
 
@@ -512,7 +670,52 @@ public class GameScreen extends ScreenAdapter {
         vitesseY = 0f;
         accumulateurPhysique = 0f;
         enPause = true;
+        niveauComplete = false;
+        victoireSauvegardee = false;
         mettreAJourPontActif();
+    }
+
+    private void marquerNiveauTermine() {
+        if (victoireSauvegardee || niveauIndex < 0) {
+            return;
+        }
+        progression.putBoolean(MenuScreen.cleProgression(niveauIndex), true);
+        progression.flush();
+        victoireSauvegardee = true;
+    }
+
+    private void basculerPause() {
+        if (!niveauComplete) {
+            enPause = !enPause;
+        }
+    }
+
+    private void retournerMenu() {
+        game.setScreen(new MenuScreen(game));
+    }
+
+    private void mettreAJourInterface() {
+        if (niveauComplete) {
+            statutLabel.setText("Statut : niveau termine");
+            actionLabel.setText("Progression sauvegardee - Retourne au menu ou recommence.");
+        } else if (enPause) {
+            statutLabel.setText("Statut : balle immobile");
+            actionLabel.setText("Ajuste l'angle, puis appuie sur Espace ou Lance.");
+        } else {
+            statutLabel.setText("Statut : balle en mouvement");
+            actionLabel.setText("Espace met en pause - Souris et fleches ajustent la camera.");
+        }
+        pontLabel.setText(pontActif == null ? "Pont visuel : aucun alignement" : "Pont visuel : alignement detecte");
+        pauseButton.setText(enPause ? "Lancer" : "Pause");
+        pauseButton.setDisabled(niveauComplete);
+        victoireOverlay.setVisible(niveauComplete);
+    }
+
+    private boolean pointeurSurInterface() {
+        pointeurStage.set(Gdx.input.getX(), Gdx.input.getY());
+        uiStage.screenToStageCoordinates(pointeurStage);
+        Actor acteur = uiStage.hit(pointeurStage.x, pointeurStage.y, true);
+        return acteur != null;
     }
 
     private float borner(float valeur, float min, float max) {
@@ -522,17 +725,17 @@ public class GameScreen extends ScreenAdapter {
     @Override
     public void render(float delta) {
         if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
-            game.setScreen(new MenuScreen(game));
+            retournerMenu();
             return;
         }
 
         if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE) && !niveauComplete) {
-            enPause = !enPause;
+            basculerPause();
         }
 
         deplacerCamera(delta);
 
-        if (Gdx.input.isButtonPressed(Input.Buttons.LEFT)) {
+        if (Gdx.input.isButtonPressed(Input.Buttons.LEFT) && !pointeurSurInterface()) {
             float deltaX = Gdx.input.getDeltaX();
             float deltaY = Gdx.input.getDeltaY();
             float sensibilite = 0.5f;
@@ -548,6 +751,7 @@ public class GameScreen extends ScreenAdapter {
             simulerPhysique(delta);
         }
         mettreAJourPontActif();
+        mettreAJourInterface();
 
         balleInstance.transform.setToTranslation(positionBalle);
 
@@ -568,16 +772,8 @@ public class GameScreen extends ScreenAdapter {
         }
         modelBatch.end();
 
-        batch.begin();
-        if (niveauComplete) {
-            font.draw(batch, "VICTOIRE ! Niveau Complete !", Gdx.graphics.getWidth() / 2f - 120, Gdx.graphics.getHeight() / 2f + 20);
-            font.draw(batch, "Appuyez sur [ESC] pour retourner au menu.", Gdx.graphics.getWidth() / 2f - 160, Gdx.graphics.getHeight() / 2f - 20);
-        } else {
-            font.draw(batch, "Controles : souris pour orienter, fleches pour deplacer la camera.", 20, Gdx.graphics.getHeight() - 20);
-            font.draw(batch, "Statut : " + (enPause ? "IMMOBILE (Ajuste ton angle)" : "EN MOUVEMENT"), 20, Gdx.graphics.getHeight() - 50);
-            font.draw(batch, "Appuie sur [ESPACE] pour " + (enPause ? "LANCER LA BALLE" : "METTRE EN PAUSE"), 20, Gdx.graphics.getHeight() - 80);
-        }
-        batch.end();
+        uiStage.act(delta);
+        uiStage.draw();
     }
 
     @Override
@@ -585,6 +781,12 @@ public class GameScreen extends ScreenAdapter {
         camera.viewportWidth = LARGEUR_CAMERA;
         camera.viewportHeight = LARGEUR_CAMERA * (height / (float) width);
         orienterCameraVersPivot();
+        uiStage.getViewport().update(width, height, true);
+    }
+
+    @Override
+    public void hide() {
+        Gdx.input.setInputProcessor(null);
     }
 
     @Override
@@ -594,7 +796,7 @@ public class GameScreen extends ScreenAdapter {
         balleModel.dispose();
         quilleModel.dispose();
         pointPontModel.dispose();
-        batch.dispose();
-        font.dispose();
+        uiStage.dispose();
+        skin.dispose();
     }
 }

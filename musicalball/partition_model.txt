@@ -1,0 +1,11 @@
+NOM_INSTRUMENT,ID_MIDI | NOTE1 NOTE2 NOTE3 ...
+*(Remarque : tu as 16 cases par ligne, sépare tes notes par des espaces, et met `--` pour faire un silence).*
+
+**Exemples d'ID MIDI sympa à tester :**
+* `1` : Piano classique
+* `12` : Vibraphone
+* `17` : Orgue
+* `31` : Guitare Distortion
+* `34` : Basse électrique
+
+Si le fichier `partition.txt` n'est pas trouvé, le programme chargera automatiquement la partition de démonstration interne pour que tu puisses quand même tester immédiatement ! Qu'en penses-tu ?
